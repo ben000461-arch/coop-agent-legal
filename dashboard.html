@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://*.supabase.co; base-uri 'none'; form-action 'self'">
+<meta name="referrer" content="no-referrer">
+<title>Dashboard — co|op Agent</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body data-page="dashboard">
+<div id="fatal" class="fatal" hidden><div class="box" role="alert"></div></div>
+<div id="app" class="shell" hidden>
+  <header class="top">
+    <div class="brand">co|op Agent</div>
+    <div class="who"><span id="who"></span><button id="out" class="btn ghost small" type="button">Log out</button></div>
+  </header>
+  <nav class="side" aria-label="Sections">
+    <button type="button" data-view="agent">Agent</button>
+    <button type="button" data-view="logs">Logs</button>
+  </nav>
+  <main class="main">
+    <section id="unlinked" class="panel" hidden>
+      <h2>Your login isn’t linked to an agent yet</h2>
+      <p>Ask co|op to link it, then refresh this page. Email <a href="mailto:cooptech126@gmail.com">cooptech126@gmail.com</a>.</p>
+    </section>
+
+    <section id="view-agent" hidden>
+      <h1>Agent</h1>
+      <p id="agent-sub" class="muted">Your agent</p>
+      <div class="panel">
+        <h2>What it is</h2>
+        <p>A private AI assistant you text on Telegram. It helps with everyday work: emails, spreadsheets, notes, your calendar and small code changes.</p>
+        <h2>What it can do</h2>
+        <ul>
+          <li>Save email <strong>drafts</strong> in Gmail. It never sends email and never reads your inbox.</li>
+          <li>Read your Google Calendar to answer questions. It never changes events.</li>
+          <li>Create and edit spreadsheets and text files, and keep notes.</li>
+          <li>Prepare code changes in the GitHub projects you choose, as a pull request, only after you say yes.</li>
+        </ul>
+        <h2>How it works</h2>
+        <p>It shows you what it is about to do and waits for your yes before it changes anything. Everything it does is listed on the Logs page.</p>
+        <p><a id="open-tg" class="btn small" href="#" target="_blank" rel="noopener noreferrer" hidden>Open in Telegram</a></p>
+      </div>
+    </section>
+
+    <section id="view-logs" hidden>
+      <h1>Logs</h1>
+      <p class="muted">What your agent did and how it went. Logs never include the text of your messages or your email and file contents.</p>
+      <div class="bar">
+        <div class="seg" role="group" aria-label="What to show">
+          <button type="button" data-mode="actions" aria-pressed="true">Actions</button>
+          <button type="button" data-mode="all" aria-pressed="false">Everything</button>
+        </div>
+        <span class="spacer"></span>
+        <span id="updated" class="muted small"></span>
+        <button id="refresh" class="btn ghost small" type="button">Refresh</button>
+      </div>
+      <div id="err" class="error" role="alert" hidden></div>
+      <div id="empty" class="empty" hidden></div>
+      <table id="tbl" hidden>
+        <thead><tr><th>When</th><th>What happened</th><th>Result</th><th>Note</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div class="more"><button id="older" class="btn ghost small" type="button" hidden>Load older</button></div>
+    </section>
+    <p class="foot"><a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a></p>
+  </main>
+</div>
+<script src="config.js"></script>
+<script src="supabase.js"></script>
+<script src="app.js"></script>
+</body></html>
