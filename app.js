@@ -135,7 +135,10 @@
     const isAuthError = (e) => e && (e.status === 401 || e.code === 'PGRST301' || /jwt/i.test(e.message || ''));
 
     // which view is showing
-    let view = location.hash === '#agent' ? 'agent' : 'logs';
+    const VIEWS = ['start', 'agent', 'connections', 'logs', 'help'];
+    const NEEDS_AGENT = new Set(['agent', 'connections', 'logs']); // Get started and Help work for anyone
+    const fromHash = location.hash.slice(1);
+    let view = VIEWS.includes(fromHash) ? fromHash : null; // chosen after we know if the login is linked
     let linked = null; // null = not known yet
     function show(v) {
       view = v;
@@ -143,10 +146,14 @@
       for (const b of document.querySelectorAll('.side button')) {
         if (b.dataset.view === v) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
       }
-      $('unlinked').hidden = linked !== false;
-      $('view-agent').hidden = !(v === 'agent' && linked !== false);
-      $('view-logs').hidden = !(v === 'logs' && linked === true);
+      const blocked = NEEDS_AGENT.has(v) && linked === false;
+      $('unlinked').hidden = !blocked;
+      for (const name of VIEWS) {
+        const open = name === v && (!NEEDS_AGENT.has(name) || linked === true);
+        $(`view-${name}`).hidden = !open;
+      }
       if (v === 'logs' && linked === true && !logs.started) logs.start();
+      if (v === 'connections' && linked === true) conns.load();
     }
     for (const b of document.querySelectorAll('.side button')) b.addEventListener('click', () => show(b.dataset.view));
 
@@ -225,16 +232,134 @@
     $('refresh').addEventListener('click', () => logs.fresh());
     $('older').addEventListener('click', () => logs.older());
 
+    // ---- connections: what each connected tool has done (counts and names only, from the log)
+    const CONNS = [
+      { name: 'Google Calendar', blurb: 'Reads your calendar to answer questions. It never changes events.', actions: ['list_events'] },
+      { name: 'Gmail', blurb: 'Saves email drafts for you to look over. It never sends email and never reads your inbox.', actions: ['draft_email'] },
+      { name: 'GitHub', blurb: 'Looks at the projects you chose, and only after your yes puts a change on a new branch as a pull request.', actions: ['list_repos', 'list_prs', 'build_status', 'code_task', 'cloud_ok', 'push_change'], names: true },
+      { name: 'Files and spreadsheets', blurb: 'Files and spreadsheets the agent makes for you.', actions: ['write_file', 'write_excel', 'view_excel', 'edit_excel'], names: true },
+      { name: 'Notes', blurb: 'Quick notes you ask it to keep.', actions: ['add_note', 'list_notes'] },
+    ];
+    const conns = {
+      busy: false, loaded: false,
+      async load() {
+        if (this.busy) return;
+        this.busy = true;
+        const err = $('conn-err');
+        err.hidden = true;
+        try {
+          const { data: rows, error } = await db.from('agent_logs').select('ts,kind,action,status,detail')
+            .neq('kind', 'chat').order('id', { ascending: false }).limit(1000);
+          if (error) throw error;
+          this.render(rows || []);
+          this.loaded = true;
+          $('conn-updated').textContent = `Updated ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+        } catch (e) {
+          if (isAuthError(e)) return sessionExpired();
+          err.textContent = "Couldn't load your connections. Try Refresh in a moment.";
+          err.hidden = false;
+        } finally { this.busy = false; }
+      },
+      render(rows) {
+        const box = $('conn-list');
+        box.replaceChildren();
+        for (const c of CONNS) {
+          const mine = rows.filter((r) => c.actions.includes(r.action));
+          const done = mine.filter((r) => r.status === 'done');
+          const failed = mine.filter((r) => r.status === 'failed').length;
+          const card = el('article', 'conn');
+          card.appendChild(el('h2', null, c.name));
+          card.appendChild(el('p', 'muted small', c.blurb));
+          if (!done.length && !failed) {
+            card.appendChild(el('p', 'conn-none', 'Not used yet.'));
+            box.appendChild(card);
+            continue;
+          }
+          const big = el('p', 'conn-count');
+          big.appendChild(el('strong', null, String(done.length)));
+          big.appendChild(document.createTextNode(done.length === 1 ? ' time used' : ' times used'));
+          if (failed) big.appendChild(el('span', 'badge b-failed', `${failed} failed`));
+          card.appendChild(big);
+          if (done.length) card.appendChild(el('p', 'muted small', `Last used ${fmtWhen(done[0].ts)}`));
+          const by = new Map();
+          for (const r of done) by.set(r.action, (by.get(r.action) || 0) + 1);
+          if (by.size) {
+            const ul = el('ul', 'conn-what');
+            for (const [a, n] of [...by].sort((x, y) => y[1] - x[1])) ul.appendChild(el('li', null, `${LABEL[a] || a.replace(/_/g, ' ')}: ${n}`));
+            card.appendChild(ul);
+          }
+          if (c.names) {
+            const seen = [];
+            for (const r of done) if (r.detail && !seen.includes(r.detail)) seen.push(r.detail);
+            if (seen.length) {
+              const t = el('p', 'small');
+              t.appendChild(el('b', null, 'Worked with: '));
+              t.appendChild(document.createTextNode(seen.slice(0, 6).join(', ') + (seen.length > 6 ? ` and ${seen.length - 6} more` : '')));
+              card.appendChild(t);
+            }
+          }
+          box.appendChild(card);
+        }
+        $('conn-note').hidden = false;
+      },
+    };
+    $('conn-refresh').addEventListener('click', () => conns.load());
+
+    // ---- get started: install Telegram -> open the agent -> connect tools -> try it
+    const STEPS = ['telegram', 'agent', 'connect', 'try'];
+    const stepKey = `coop-start-${data.session.user.id}`;
+    let stepsDone = [];
+    try { stepsDone = JSON.parse(localStorage.getItem(stepKey) || '[]').filter((s) => STEPS.includes(s)); } catch { stepsDone = []; }
+    function renderSteps() {
+      let current = STEPS.find((s) => !stepsDone.includes(s)) || null;
+      for (const s of STEPS) {
+        const card = $(`step-${s}`);
+        const done = stepsDone.includes(s);
+        card.classList.toggle('done', done);
+        card.classList.toggle('locked', !done && s !== current);
+        card.querySelector('.step-body').hidden = !(s === current);
+        card.querySelector('.step-state').textContent = done ? 'Done' : s === current ? 'Now' : 'Next';
+      }
+      $('start-finished').hidden = current !== null;
+    }
+    function markStep(s) {
+      if (!stepsDone.includes(s)) stepsDone.push(s);
+      try { localStorage.setItem(stepKey, JSON.stringify(stepsDone)); } catch { /* ignore */ }
+      renderSteps();
+    }
+    for (const b of document.querySelectorAll('[data-step-done]')) b.addEventListener('click', () => markStep(b.dataset.stepDone));
+    $('steps-reset').addEventListener('click', () => { stepsDone = []; try { localStorage.removeItem(stepKey); } catch { /* ignore */ } renderSteps(); });
+    $('go-logs').addEventListener('click', () => show('logs'));
+    $('go-help').addEventListener('click', () => show('help'));
+    for (const b of document.querySelectorAll('[data-copy]')) {
+      b.addEventListener('click', async () => {
+        const old = b.dataset.label || (b.dataset.label = b.textContent);
+        try { await navigator.clipboard.writeText(b.dataset.copy); b.textContent = 'Copied'; } catch { b.textContent = 'Select and copy it by hand'; }
+        setTimeout(() => { b.textContent = old; }, 1500);
+      });
+    }
+    if (cfg.bot) {
+      for (const a of document.querySelectorAll('.tg-link')) { a.href = `https://t.me/${cfg.bot}`; a.hidden = false; }
+      $('bot-name').textContent = `@${cfg.bot}`;
+    } else {
+      $('no-bot').hidden = false;
+    }
+    renderSteps();
+
     // ---- is this login linked to an agent?
     try {
       const { data: link, error } = await db.from('tenant_users').select('chat_id').limit(1);
       if (error) throw error;
       linked = Array.isArray(link) && link.length > 0;
+      let hasLogs = false;
       if (linked) {
-        const { data: last } = await db.from('agent_logs').select('business').order('id', { ascending: false }).limit(1);
+        const { data: last, error: lastErr } = await db.from('agent_logs').select('business').order('id', { ascending: false }).limit(1);
+        if (lastErr && isAuthError(lastErr)) return sessionExpired();
         const name = last && last[0] && last[0].business;
+        hasLogs = Boolean(last && last.length) || Boolean(lastErr); // on an error, open Logs so the message shows
         $('agent-sub').textContent = name ? `Your agent for ${name}` : 'Your agent';
       }
+      if (!view) view = linked && !hasLogs ? 'start' : 'logs'; // a brand-new account starts at Get started
     } catch (e) {
       if (isAuthError(e)) return sessionExpired();
       linked = null;

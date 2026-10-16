@@ -13,13 +13,71 @@
     <div class="who"><span id="who"></span><button id="out" class="btn ghost small" type="button">Log out</button></div>
   </header>
   <nav class="side" aria-label="Sections">
+    <button type="button" data-view="start">Get started</button>
     <button type="button" data-view="agent">Agent</button>
+    <button type="button" data-view="connections">Connections</button>
     <button type="button" data-view="logs">Logs</button>
+    <button type="button" data-view="help">Help</button>
   </nav>
   <main class="main">
     <section id="unlinked" class="panel" hidden>
       <h2>Your login isn’t linked to an agent yet</h2>
       <p>Ask co|op to link it, then refresh this page. Email <a href="mailto:cooptech126@gmail.com">cooptech126@gmail.com</a>.</p>
+    </section>
+
+    <section id="view-start" hidden>
+      <h1>Get started</h1>
+      <p class="muted">Four short steps. Your agent lives in Telegram, and this site shows you what it does.</p>
+      <ol class="steps">
+        <li id="step-telegram" class="step">
+          <div class="step-head"><span class="step-n">1</span><h2>Get Telegram</h2><span class="step-state"></span></div>
+          <div class="step-body">
+            <p>Telegram is a free messaging app. You’ll chat with your agent in it. Already have it? Skip ahead.</p>
+            <p><a class="btn ghost small" href="https://telegram.org/apps" target="_blank" rel="noopener noreferrer">Download Telegram</a></p>
+            <p>Install it, open it and sign in with your phone number.</p>
+            <button class="btn" type="button" data-step-done="telegram">I have Telegram</button>
+          </div>
+        </li>
+        <li id="step-agent" class="step">
+          <div class="step-head"><span class="step-n">2</span><h2>Open your agent</h2><span class="step-state"></span></div>
+          <div class="step-body">
+            <p>This opens <strong id="bot-name">your agent</strong> in Telegram. Tap <strong>Start</strong> at the bottom, and it will say hello.</p>
+            <p><a class="btn tg-link" href="#" target="_blank" rel="noopener noreferrer" hidden>Open my agent in Telegram</a></p>
+            <p id="no-bot" class="muted" hidden>The agent link isn’t set up on this site yet. Ask co|op for it.</p>
+            <p class="muted small">If it says the assistant is invite-only, ask co|op for your personal invite link and tap that instead.</p>
+            <button class="btn" type="button" data-step-done="agent">It said hello</button>
+          </div>
+        </li>
+        <li id="step-connect" class="step">
+          <div class="step-head"><span class="step-n">3</span><h2>Connect your tools</h2><span class="step-state"></span></div>
+          <div class="step-body">
+            <p>In the Telegram chat, send these one at a time. Each gives you a link that opens in your browser. Only connect what you want to use.</p>
+            <p class="chips"><button class="chip" type="button" data-copy="/connect google">/connect google</button> <span class="muted small">Gmail drafts and your calendar</span></p>
+            <p class="chips"><button class="chip" type="button" data-copy="/connect github">/connect github</button> <span class="muted small">your code projects (optional)</span></p>
+            <p class="small"><strong>On Google’s screen,</strong> tick <strong>Select all</strong> before you continue. The boxes start unticked, and the agent needs both to work.</p>
+            <p class="muted small">Send <code>/connections</code> any time to see what’s connected.</p>
+            <button class="btn" type="button" data-step-done="connect">I’m connected</button>
+          </div>
+        </li>
+        <li id="step-try" class="step">
+          <div class="step-head"><span class="step-n">4</span><h2>Try it</h2><span class="step-state"></span></div>
+          <div class="step-body">
+            <p>Send the agent a message like these:</p>
+            <ul>
+              <li>“what’s on my calendar today?”</li>
+              <li>“note buy milk”</li>
+              <li>“draft an email to Sam about Friday”</li>
+            </ul>
+            <p>Then check the <strong>Logs</strong> page. Each thing it did shows up there within a minute.</p>
+            <p><button class="btn ghost small" type="button" id="go-logs">Go to Logs</button> <button class="btn" type="button" data-step-done="try">Done</button></p>
+          </div>
+        </li>
+      </ol>
+      <div id="start-finished" class="panel" hidden>
+        <h2>You’re all set</h2>
+        <p>Your agent is ready. See <strong>Connections</strong> for what each tool has done, or <button class="linklike" type="button" id="go-help">Help</button> for everything you can say.</p>
+      </div>
+      <p class="muted small"><button class="linklike" type="button" id="steps-reset">Start these steps over</button></p>
     </section>
 
     <section id="view-agent" hidden>
@@ -36,9 +94,18 @@
           <li>Prepare code changes in the GitHub projects you choose, as a pull request, only after you say yes.</li>
         </ul>
         <h2>How it works</h2>
-        <p>It shows you what it is about to do and waits for your yes before it changes anything. Everything it does is listed on the Logs page.</p>
+        <p>It shows you what it is about to do and waits for your yes before it changes anything. Everything it does is listed on the Logs page, and the Connections page shows which tools it used.</p>
         <p><a id="open-tg" class="btn small" href="#" target="_blank" rel="noopener noreferrer" hidden>Open in Telegram</a></p>
       </div>
+    </section>
+
+    <section id="view-connections" hidden>
+      <h1>Connections</h1>
+      <p class="muted">What each tool has done for you. This shows counts and file or project names only. It never shows the text of an email, a calendar event or a file.</p>
+      <div class="bar"><span class="spacer"></span><span id="conn-updated" class="muted small"></span><button id="conn-refresh" class="btn ghost small" type="button">Refresh</button></div>
+      <div id="conn-err" class="error" role="alert" hidden></div>
+      <div id="conn-list" class="conn-grid"></div>
+      <p id="conn-note" class="muted small" hidden>Based on your most recent activity. Connect or disconnect an account in Telegram with <code>/connect</code> or <code>/disconnect</code>.</p>
     </section>
 
     <section id="view-logs" hidden>
@@ -61,6 +128,52 @@
       </table>
       <div class="more"><button id="older" class="btn ghost small" type="button" hidden>Load older</button></div>
     </section>
+    <section id="view-help" hidden>
+      <h1>Help</h1>
+      <p class="muted">How this site and your agent work.</p>
+      <div class="panel">
+        <h2>Around this site</h2>
+        <ul>
+          <li><strong>Get started:</strong> the first-time setup, step by step.</li>
+          <li><strong>Agent:</strong> what your agent is and what it can do.</li>
+          <li><strong>Connections:</strong> which tools it used, how often, and what it worked with.</li>
+          <li><strong>Logs:</strong> every action, when it happened and how it went.</li>
+        </ul>
+        <h2>How your agent is linked to you</h2>
+        <p>Your agent belongs to one Telegram chat, and this website login is tied to that same chat. That’s how you only ever see your own agent’s activity. Nobody else can open your chat or your logs.</p>
+        <p>If this site says your login isn’t linked yet, email <a href="mailto:cooptech126@gmail.com">cooptech126@gmail.com</a> and we’ll link it.</p>
+        <h2>Things you can say</h2>
+        <ul>
+          <li>“what’s on my calendar today?”</li>
+          <li>“draft an email to Sam about Friday”</li>
+          <li>“make a spreadsheet of my expenses”</li>
+          <li>“note buy milk”, then “show my notes”</li>
+          <li>“what pull requests are open?”</li>
+        </ul>
+        <p class="muted small">Just talk normally. If it isn’t sure what you mean, it asks instead of guessing. Before it changes anything, it shows you and waits for your yes.</p>
+        <h2>Commands</h2>
+        <dl class="cmds">
+          <dt><code>/help</code></dt><dd>What the agent can do. Add a question, like <code>/help what should I do next</code>.</dd>
+          <dt><code>/connect google</code></dt><dd>Link Gmail drafts and your calendar.</dd>
+          <dt><code>/connect github</code></dt><dd>Link the code projects you choose.</dd>
+          <dt><code>/connections</code></dt><dd>See what’s connected.</dd>
+          <dt><code>/disconnect google</code></dt><dd>Remove a connection (also <code>github</code>).</dd>
+          <dt><code>/code in myapp, fix the crash in server.js</code></dt><dd>Ask for a code change. It shows you the change first.</dd>
+          <dt><code>/changes</code></dt><dd>List saved code changes you can still turn into a pull request.</dd>
+          <dt><code>/model</code></dt><dd>Choose which AI writes your code.</dd>
+          <dt><code>/instructions</code></dt><dd>Tell the agent about your business and how you like it to talk.</dd>
+        </dl>
+        <h2>Good to know</h2>
+        <ul>
+          <li>It only saves email <strong>drafts</strong>. You send them yourself.</li>
+          <li>It only <strong>reads</strong> your calendar.</li>
+          <li>Code changes go onto a new branch as a pull request, and only after you say yes.</li>
+          <li>Pasted passwords and keys are refused, so don’t send them in the chat.</li>
+        </ul>
+        <p class="muted small">More in our <a href="privacy.html">privacy page</a>.</p>
+      </div>
+    </section>
+
     <p class="foot"><a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a></p>
   </main>
 </div>

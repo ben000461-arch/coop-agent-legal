@@ -83,3 +83,35 @@ td.when{white-space:nowrap;color:var(--muted);font-size:.85rem}
   td.when{white-space:normal}
 }
 .block{width:100%;margin-top:20px}
+
+/* get started */
+.steps{list-style:none;margin:20px 0;padding:0;max-width:720px;display:grid;gap:12px}
+.step{border:1px solid var(--line);background:var(--panel);border-radius:14px;padding:16px 20px}
+.step-head{display:flex;align-items:center;gap:12px}
+.step-head h2{font-size:1.05rem;margin:0;flex:1}
+.step-n{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:var(--accent);color:var(--accent-fg);font-weight:700;font-size:.9rem;flex:none}
+.step-state{font-size:.78rem;font-weight:600;color:var(--muted)}
+.step.done .step-n{background:var(--ok-fg);color:var(--bg)}
+.step.done .step-state{color:var(--ok-fg)}
+.step.locked{opacity:.6}
+.step-body{margin-top:12px}.step-body p{margin:8px 0}
+.chips{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.chip,code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85rem;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:2px 7px}
+.chip{color:var(--fg);cursor:pointer;padding:5px 10px}
+.chip:hover{border-color:var(--accent)}
+.linklike{background:none;border:0;padding:0;font:inherit;color:var(--accent);text-decoration:underline;cursor:pointer}
+
+/* connections */
+.conn-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;max-width:900px}
+.conn{border:1px solid var(--line);background:var(--panel);border-radius:14px;padding:16px 18px}
+.conn h2{font-size:1rem;margin:0 0 4px}
+.conn p{margin:6px 0}
+.conn-count strong{font-size:1.6rem;margin-right:2px}
+.conn-count .badge{margin-left:10px}
+.conn-none{color:var(--muted)}
+.conn-what{margin:6px 0;padding-left:1.1rem;font-size:.9rem}
+
+/* help */
+.cmds{display:grid;grid-template-columns:max-content 1fr;gap:8px 16px;margin:8px 0}
+.cmds dt{margin:0}.cmds dd{margin:0;color:var(--muted)}
+@media (max-width:760px){.cmds{grid-template-columns:1fr}.cmds dd{margin-bottom:6px}.side{flex-wrap:wrap}}
