@@ -48,7 +48,7 @@
     return { url, key, bot };
   }
 
-  // ---- login ------------------------------------------------------------------------------
+  // ---- login and sign-up ------------------------------------------------------------------
   async function bootLogin(db) {
     const { data } = await db.auth.getSession();
     if (data.session) return location.replace('dashboard.html');
@@ -57,15 +57,35 @@
     const err = $('err');
     const go = $('go');
     const fail = (m) => { err.textContent = m; err.hidden = false; };
+    let mode = 'login';
 
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
+    function setMode(m) {
+      mode = m;
+      const su = m === 'signup';
+      $('signup-fields').hidden = !su;
+      $('sub').textContent = su ? 'Create an account. We review every request before an agent is set up.' : 'Log in to see what your agent has been doing.';
+      go.textContent = su ? 'Create account' : 'Log in';
+      $('password').autocomplete = su ? 'new-password' : 'current-password';
+      $('toggle-text').textContent = su ? 'Already have an account?' : 'New here?';
+      $('toggle').textContent = su ? 'Log in' : 'Create an account';
       err.hidden = true;
-      const email = $('email').value.trim();
-      const password = $('password').value;
-      if (!email || !password) return fail('Enter your email and password.');
-      go.disabled = true;
-      go.textContent = 'Logging in…';
+    }
+    $('toggle').addEventListener('click', () => setMode(mode === 'login' ? 'signup' : 'login'));
+    $('back-login').addEventListener('click', () => { $('done').hidden = true; form.hidden = false; $('toggle').parentElement.hidden = false; setMode('login'); });
+    if (location.hash === '#signup') setMode('signup');
+
+    // Coming back from the confirmation email: the address carries tokens we don't use. Remove them from
+    // the address bar and say what happened. (Nothing is stored; the person logs in normally.)
+    const h = location.hash;
+    if (/access_token=|type=signup|error_description=|error_code=/.test(h)) {
+      try { history.replaceState(null, '', location.pathname); } catch { /* ignore */ }
+      const note = $('note');
+      if (/error_description=|error_code=/.test(h)) note.textContent = 'That confirmation link didn’t work, or it has expired. Try creating the account again, or log in if you already have one.';
+      else note.textContent = 'Your email is confirmed. Log in to continue.';
+      note.hidden = false;
+    }
+
+    async function doLogin(email, password) {
       let error;
       try {
         ({ error } = await db.auth.signInWithPassword({ email, password }));
@@ -78,6 +98,58 @@
       if (error.status === 429) fail('Too many tries. Wait a minute and try again.');
       else if (error.status === 400 || error.status === 401 || error.status === 422) fail("That email and password didn't match.");
       else fail("Couldn't reach the server. Check your connection and try again.");
+    }
+
+    async function doSignup(email, password) {
+      const use_case = $('use_case').value;
+      const business_type = $('business_type').value.trim();
+      const business_name = $('business_name').value.trim();
+      const notes = $('notes').value.trim();
+      if (password.length < 8) return fail('Use a password with at least 8 characters.');
+      if (!business_name) return fail('Enter your business name.');
+      if (!business_type) return fail('Tell us what kind of business it is.');
+      if (!['tasks', 'dev', 'both', 'other'].includes(use_case)) return fail('Choose what you will use your agent for.');
+      go.disabled = true;
+      go.textContent = 'Creating…';
+      let d; let error;
+      try {
+        ({ data: d, error } = await db.auth.signUp({
+          email, password,
+          options: { data: { use_case, business_type, business_name, notes }, emailRedirectTo: new URL('login.html', location.href).href },
+        }));
+      } catch {
+        error = { status: 0 };
+      }
+      go.disabled = false;
+      go.textContent = 'Create account';
+      if (!error) {
+        if (d && d.session) return location.replace('dashboard.html'); // the project doesn't require email confirmation
+        $('done-email').textContent = email;
+        $('password').value = '';
+        form.hidden = true;
+        $('toggle').parentElement.hidden = true;
+        $('done').hidden = false;
+        return undefined; // the same message whether or not the email already had an account
+      }
+      if (error.status === 429) return fail('Too many sign-ups right now. Wait a while and try again.');
+      if (error.code === 'signup_disabled') return fail('Sign-ups are closed right now. Email cooptech126@gmail.com.');
+      if (error.code === 'weak_password') return fail('That password is too easy to guess. Try a longer one.');
+      if (error.status === 0 || error.status >= 500) return fail("Couldn't reach the server. Check your connection and try again.");
+      return fail("Couldn't create the account. Check your details and try again.");
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      err.hidden = true;
+      const email = $('email').value.trim();
+      const password = $('password').value;
+      if (!email || !password) return fail('Enter your email and password.');
+      if (mode === 'login') {
+        go.disabled = true;
+        go.textContent = 'Logging in…';
+        return doLogin(email, password);
+      }
+      return doSignup(email, password);
     });
   }
 
@@ -338,13 +410,107 @@
         setTimeout(() => { b.textContent = old; }, 1500);
       });
     }
-    if (cfg.bot) {
-      for (const a of document.querySelectorAll('.tg-link')) { a.href = `https://t.me/${cfg.bot}`; a.hidden = false; }
-      $('bot-name').textContent = `@${cfg.bot}`;
-    } else {
-      $('no-bot').hidden = false;
-    }
     renderSteps();
+
+    // ---- approval + personal link (Get started, step 2)
+    let signupStatus = null;   // 'pending' | 'approved' | 'denied' | 'none' | null (not known yet)
+    let signupName = '';
+    let linkCode = '';          // the one-time code behind the personal link, while it's valid
+    let linkBusy = false;
+    let checkFailed = false;
+    const tgLink = document.querySelector('.tg-link');
+    function setNotice(text, kind) {
+      const n = $('notice');
+      n.textContent = text || '';
+      n.className = `notice${kind ? ` ${kind}` : ''}`;
+      n.hidden = !text;
+    }
+    function renderLinkState() {
+      const isLinked = linked === true;
+      const s = signupStatus;
+      const haveLink = !isLinked && s === 'approved' && Boolean(linkCode);
+      let intro;
+      if (isLinked) intro = 'This opens your agent in Telegram. Tap Start at the bottom.';
+      else if (checkFailed) intro = 'We couldn’t check your sign-up just now. Refresh this page in a moment.';
+      else if (s === 'pending') intro = 'Your request is waiting for approval. When you’re approved, your personal link appears here. This page checks for you.';
+      else if (s === 'denied') intro = 'Your request wasn’t approved, so there’s no link.';
+      else if (s === 'none') intro = 'We don’t have a sign-up request for this login. Email cooptech126@gmail.com and we’ll sort it out.';
+      else if (s === 'approved') intro = 'You’re approved. Tap the button, then press Start in Telegram. That ties this login to your own agent.';
+      else intro = 'Checking your sign-up…';
+      $('agent-intro').textContent = intro;
+      tgLink.hidden = !(cfg.bot && (isLinked || haveLink));
+      $('link-note').hidden = !haveLink;
+      $('link-wait').hidden = !haveLink;
+      $('agent-ok').hidden = !isLinked;
+      $('no-bot').hidden = Boolean(cfg.bot);
+      if (cfg.bot) {
+        tgLink.href = haveLink ? `https://t.me/${cfg.bot}?start=link_${linkCode}` : `https://t.me/${cfg.bot}`;
+      }
+      if (!isLinked && !checkFailed && s === 'pending') setNotice('Thanks! We’re reviewing your request. This page will update on its own when you’re approved.', 'warn');
+      else if (!isLinked && s === 'denied') setNotice('Your request wasn’t approved. If you think that’s a mistake, email cooptech126@gmail.com.', 'bad');
+      else if (!isLinked) setNotice('');
+    }
+    async function makeLink() {
+      if (linkBusy || linked !== false || signupStatus !== 'approved') return;
+      linkBusy = true;
+      $('link-err').hidden = true;
+      try {
+        const { data: code, error } = await db.rpc('create_link_code');
+        if (error) throw error;
+        linkCode = typeof code === 'string' && /^[a-f0-9]{32}$/.test(code) ? code : ''; // only ever put a plain code in a link
+        if (!linkCode && code) throw new Error('bad code');
+      } catch (e) {
+        if (isAuthError(e)) { sessionExpired(); return; }
+        linkCode = '';
+        $('link-err').textContent = 'Couldn’t make your link. Refresh this page in a moment.';
+        $('link-err').hidden = false;
+      } finally {
+        linkBusy = false;
+        renderLinkState();
+      }
+    }
+    async function refreshSignup() {
+      const { data: rows, error } = await db.from('signups').select('status,business_name').limit(1);
+      if (error) {
+        if (isAuthError(error)) { sessionExpired(); return; }
+        checkFailed = true;
+        return;
+      }
+      checkFailed = false;
+      const row = rows && rows[0];
+      signupStatus = row ? row.status : 'none';
+      signupName = row && row.business_name && row.business_name !== '(existing login)' ? row.business_name : '';
+      if (signupStatus === 'approved' && !linkCode) await makeLink();
+    }
+    $('new-link').addEventListener('click', () => { linkCode = ''; makeLink(); });
+    $('go-start').addEventListener('click', () => show('start'));
+
+    // While this login isn't linked yet, quietly watch for approval and for the moment the link is used.
+    let watchTimer = null;
+    function startWatch() {
+      if (linked !== false || watchTimer) return;
+      let ticks = 0;
+      watchTimer = setInterval(async () => {
+        if (document.visibilityState !== 'visible' || ++ticks > 720) return; // about an hour of watching, then stop
+        try {
+          const { data: l, error } = await db.from('tenant_users').select('chat_id').limit(1);
+          if (error) { if (isAuthError(error)) sessionExpired(); return; }
+          if (l && l.length) {
+            clearInterval(watchTimer); watchTimer = null;
+            linked = true; linkCode = '';
+            $('agent-sub').textContent = signupName ? `Your agent for ${signupName}` : 'Your agent';
+            markStep('agent');
+            setNotice('✅ Linked! Your agent is connected to this login. Next, connect your tools.', 'good');
+            renderLinkState();
+            show(view);
+            return;
+          }
+          const before = signupStatus;
+          await refreshSignup();
+          if (before !== signupStatus || !linkCode) renderLinkState();
+        } catch (e) { if (isAuthError(e)) sessionExpired(); }
+      }, 5000);
+    }
 
     // ---- is this login linked to an agent?
     try {
@@ -355,11 +521,19 @@
       if (linked) {
         const { data: last, error: lastErr } = await db.from('agent_logs').select('business').order('id', { ascending: false }).limit(1);
         if (lastErr && isAuthError(lastErr)) return sessionExpired();
-        const name = last && last[0] && last[0].business;
+        let name = last && last[0] && last[0].business;
         hasLogs = Boolean(last && last.length) || Boolean(lastErr); // on an error, open Logs so the message shows
+        if (!name) {
+          const { data: su } = await db.from('signups').select('business_name').limit(1);
+          const n = su && su[0] && su[0].business_name;
+          if (n && n !== '(existing login)') name = n;
+        }
         $('agent-sub').textContent = name ? `Your agent for ${name}` : 'Your agent';
+      } else {
+        await refreshSignup();
       }
-      if (!view) view = linked && !hasLogs ? 'start' : 'logs'; // a brand-new account starts at Get started
+      if (!view) view = linked && hasLogs ? 'logs' : 'start'; // new or unlinked accounts start at Get started
+      renderLinkState();
     } catch (e) {
       if (isAuthError(e)) return sessionExpired();
       linked = null;
@@ -369,6 +543,7 @@
       return;
     }
     show(view);
+    startWatch();
   }
 
   // ---- start ------------------------------------------------------------------------------
