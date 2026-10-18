@@ -22,12 +22,14 @@
   <main class="main">
     <section id="unlinked" class="panel" hidden>
       <h2>Your login isn’t linked to an agent yet</h2>
-      <p>Ask co|op to link it, then refresh this page. Email <a href="mailto:cooptech126@gmail.com">cooptech126@gmail.com</a>.</p>
+      <p>Open <strong>Get started</strong> to finish setting up and connect your agent in Telegram.</p>
+      <p><button id="go-start" class="btn small" type="button">Go to Get started</button> <span class="muted small">Need help? Email <a href="mailto:cooptech126@gmail.com">cooptech126@gmail.com</a>.</span></p>
     </section>
 
     <section id="view-start" hidden>
       <h1>Get started</h1>
       <p class="muted">Four short steps. Your agent lives in Telegram, and this site shows you what it does.</p>
+      <div id="notice" class="notice" role="status" hidden></div>
       <ol class="steps">
         <li id="step-telegram" class="step">
           <div class="step-head"><span class="step-n">1</span><h2>Get Telegram</h2><span class="step-state"></span></div>
@@ -41,11 +43,13 @@
         <li id="step-agent" class="step">
           <div class="step-head"><span class="step-n">2</span><h2>Open your agent</h2><span class="step-state"></span></div>
           <div class="step-body">
-            <p>This opens <strong id="bot-name">your agent</strong> in Telegram. Tap <strong>Start</strong> at the bottom, and it will say hello.</p>
+            <p id="agent-intro">Checking your sign-up…</p>
             <p><a class="btn tg-link" href="#" target="_blank" rel="noopener noreferrer" hidden>Open my agent in Telegram</a></p>
+            <p id="link-note" class="muted small" hidden>This link is made just for your login and works for 30 minutes. Tap <strong>Start</strong> in Telegram and your agent will confirm. <button id="new-link" class="linklike" type="button">Get a new link</button></p>
+            <p id="link-wait" class="muted small" hidden>Waiting for you to tap Start in Telegram. This page updates by itself.</p>
+            <div id="link-err" class="error" role="alert" hidden></div>
             <p id="no-bot" class="muted" hidden>The agent link isn’t set up on this site yet. Ask co|op for it.</p>
-            <p class="muted small">If it says the assistant is invite-only, ask co|op for your personal invite link and tap that instead.</p>
-            <button class="btn" type="button" data-step-done="agent">It said hello</button>
+            <button id="agent-ok" class="btn" type="button" data-step-done="agent" hidden>It said hello</button>
           </div>
         </li>
         <li id="step-connect" class="step">
@@ -140,8 +144,8 @@
           <li><strong>Logs:</strong> every action, when it happened and how it went.</li>
         </ul>
         <h2>How your agent is linked to you</h2>
-        <p>Your agent belongs to one Telegram chat, and this website login is tied to that same chat. That’s how you only ever see your own agent’s activity. Nobody else can open your chat or your logs.</p>
-        <p>If this site says your login isn’t linked yet, email <a href="mailto:cooptech126@gmail.com">cooptech126@gmail.com</a> and we’ll link it.</p>
+        <p>When you sign up, we review your request. Once you’re approved, <strong>Get started</strong> gives you a personal link made just for your login. Tap it in Telegram, press <strong>Start</strong>, and your agent ties itself to this login. Your agent belongs to one Telegram chat, and this website login is linked to that same chat, so you only ever see your own agent’s activity. Nobody else can open your chat or your logs.</p>
+        <p>Link made by mistake, or not you? Send <code>/unlink</code> to your agent. If anything looks wrong, email <a href="mailto:cooptech126@gmail.com">cooptech126@gmail.com</a>.</p>
         <h2>Things you can say</h2>
         <ul>
           <li>“what’s on my calendar today?”</li>
@@ -161,6 +165,7 @@
           <dt><code>/code in myapp, fix the crash in server.js</code></dt><dd>Ask for a code change. It shows you the change first.</dd>
           <dt><code>/changes</code></dt><dd>List saved code changes you can still turn into a pull request.</dd>
           <dt><code>/model</code></dt><dd>Choose which AI writes your code.</dd>
+          <dt><code>/unlink</code></dt><dd>Disconnect the website login from your agent. You can link again from Get started.</dd>
           <dt><code>/instructions</code></dt><dd>Tell the agent about your business and how you like it to talk.</dd>
         </dl>
         <h2>Good to know</h2>
