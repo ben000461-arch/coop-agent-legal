@@ -10,16 +10,41 @@
 <main id="app" class="center">
   <div class="card">
     <h1>co|op Agent</h1>
-    <p class="muted">Log in to see what your agent has been doing.</p>
+    <p id="sub" class="muted">Log in to see what your agent has been doing.</p>
+    <p id="note" class="ok-note" role="status" hidden></p>
     <form id="form" novalidate>
       <label for="email">Email</label>
       <input id="email" type="email" autocomplete="username" autocapitalize="none" spellcheck="false">
       <label for="password">Password</label>
       <input id="password" type="password" autocomplete="current-password">
+      <div id="signup-fields" hidden>
+        <p class="muted small">At least 8 characters.</p>
+        <label for="business_name">Business name</label>
+        <input id="business_name" type="text" maxlength="60" autocomplete="organization">
+        <label for="business_type">What kind of business is it?</label>
+        <input id="business_type" type="text" maxlength="80" placeholder="For example: plumbing, law firm, bakery">
+        <label for="use_case">What will you use your agent for?</label>
+        <select id="use_case">
+          <option value="">Choose one…</option>
+          <option value="tasks">Everyday tasks (email, files, calendar)</option>
+          <option value="dev">Coding / development</option>
+          <option value="both">Both</option>
+          <option value="other">Something else</option>
+        </select>
+        <label for="notes">Anything else we should know? <span class="muted">(optional)</span></label>
+        <textarea id="notes" rows="3" maxlength="500"></textarea>
+        <p class="muted small">By creating an account you agree to the <a href="terms.html">Terms</a> and <a href="privacy.html">Privacy Policy</a>. We review every request before an agent is set up.</p>
+      </div>
       <div id="err" class="error" role="alert" hidden></div>
       <button id="go" class="btn block" type="submit">Log in</button>
     </form>
-    <p class="muted small">Don’t have a login? Accounts are invite-only. Email <a href="mailto:cooptech126@gmail.com">cooptech126@gmail.com</a>.</p>
+    <div id="done" hidden>
+      <h2>Check your email</h2>
+      <p>If <strong id="done-email"></strong> is new here, we’ve sent it a confirmation link. Click the link, then come back and log in.</p>
+      <p class="muted small">Already have an account? Just log in. After you log in, we’ll review your request, and this site will tell you when you’re approved.</p>
+      <button id="back-login" class="btn ghost block" type="button">Go to log in</button>
+    </div>
+    <p class="muted small switch"><span id="toggle-text">New here?</span> <button id="toggle" class="linklike" type="button">Create an account</button></p>
     <div class="links"><a href="index.html">Home</a><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a></div>
   </div>
 </main>
