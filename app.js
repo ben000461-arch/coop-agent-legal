@@ -45,7 +45,9 @@
       return { error: 'The key in config.js does not look like a publishable key (it starts with sb_publishable_ or eyJ).' };
     }
     const bot = /^[A-Za-z0-9_]{5,32}$/.test(String(c.TELEGRAM_BOT || '')) ? String(c.TELEGRAM_BOT) : '';
-    return { url, key, bot };
+    let chatApi = String(c.CHAT_API || '').trim();
+    if (chatApi && !(/^https:\/\/[a-z0-9.-]+(:\d+)?(\/[A-Za-z0-9._~\-\/]*)?$/i.test(chatApi) || /^\/(?!\/)[A-Za-z0-9._~\-\/]*$/.test(chatApi))) chatApi = ''; // only an https address (or a path on this site) is accepted
+    return { url, key, bot, chatApi };
   }
 
   // ---- login and sign-up ------------------------------------------------------------------
@@ -207,15 +209,15 @@
     const isAuthError = (e) => e && (e.status === 401 || e.code === 'PGRST301' || /jwt/i.test(e.message || ''));
 
     // which view is showing
-    const VIEWS = ['start', 'agent', 'connections', 'logs', 'help'];
-    const NEEDS_AGENT = new Set(['agent', 'connections', 'logs']); // Get started and Help work for anyone
+    const VIEWS = ['chat', 'tools', 'start', 'agent', 'logs', 'help'];
+    const NEEDS_AGENT = new Set(['chat', 'tools', 'agent', 'logs']); // Get started and Help work for anyone
     const fromHash = location.hash.slice(1);
     let view = VIEWS.includes(fromHash) ? fromHash : null; // chosen after we know if the login is linked
     let linked = null; // null = not known yet
     function show(v) {
       view = v;
       try { history.replaceState(null, '', `#${v}`); } catch { /* ignore */ }
-      for (const b of document.querySelectorAll('.side button')) {
+      for (const b of document.querySelectorAll('.side button[data-view]')) {
         if (b.dataset.view === v) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
       }
       const blocked = NEEDS_AGENT.has(v) && linked === false;
@@ -225,9 +227,15 @@
         $(`view-${name}`).hidden = !open;
       }
       if (v === 'logs' && linked === true && !logs.started) logs.start();
-      if (v === 'connections' && linked === true) conns.load();
+      if (v === 'tools' && linked === true) tools.load();
     }
-    for (const b of document.querySelectorAll('.side button')) b.addEventListener('click', () => show(b.dataset.view));
+    for (const b of document.querySelectorAll('.side button[data-view]')) {
+      b.addEventListener('click', () => {
+        if (b.classList.contains('newchat')) chat.reset(); // New chat clears the conversation on this page
+        if (b.dataset.view === 'tools') tools.close();   // the Tools button always opens the list
+        show(b.dataset.view);
+      });
+    }
 
     // ---- logs
     const logs = {
@@ -262,7 +270,7 @@
         if (error) throw error;
         return rows || [];
       },
-      start() { this.started = true; this.reload(); setInterval(() => { if (document.visibilityState === 'visible' && view === 'logs') this.fresh(); }, REFRESH_MS); },
+      start() { this.started = true; charts.load(); this.reload(); setInterval(() => { if (document.visibilityState === 'visible' && view === 'logs') this.fresh(); }, REFRESH_MS); },
       reload() { return this.run(async () => { const r = await this.fetchRows(this.query()); this.rows = r; this.more = r.length === PAGE_SIZE; }); },
       fresh() { return this.run(async () => { const r = await this.fetchRows(this.query().gt('id', this.maxId())); this.rows = r.concat(this.rows); }); },
       older() { return this.run(async () => { const r = await this.fetchRows(this.query().lt('id', this.minId())); this.rows = this.rows.concat(r); this.more = r.length === PAGE_SIZE; }); },
@@ -301,81 +309,391 @@
         logs.rows = []; logs.more = false; logs.reload();
       });
     }
-    $('refresh').addEventListener('click', () => logs.fresh());
+    $('refresh').addEventListener('click', () => { logs.fresh(); charts.load(); });
     $('older').addEventListener('click', () => logs.older());
 
-    // ---- connections: what each connected tool has done (counts and names only, from the log)
-    const CONNS = [
-      { name: 'Google Calendar', blurb: 'Reads your calendar to answer questions. It never changes events.', actions: ['list_events'] },
-      { name: 'Gmail', blurb: 'Saves email drafts for you to look over. It never sends email and never reads your inbox.', actions: ['draft_email'] },
-      { name: 'GitHub', blurb: 'Looks at the projects you chose, and only after your yes puts a change on a new branch as a pull request.', actions: ['list_repos', 'list_prs', 'build_status', 'code_task', 'cloud_ok', 'push_change'], names: true },
-      { name: 'Files and spreadsheets', blurb: 'Files and spreadsheets the agent makes for you.', actions: ['write_file', 'write_excel', 'view_excel', 'edit_excel'], names: true },
-      { name: 'Notes', blurb: 'Quick notes you ask it to keep.', actions: ['add_note', 'list_notes'] },
+    // ---- little helpers shared by the pages below
+    const tipEl = el('div', 'tip');
+    tipEl.hidden = true;
+    document.body.appendChild(tipEl);
+    function showTip(e, text) {
+      tipEl.textContent = text;
+      tipEl.hidden = false;
+      tipEl.style.left = `${Math.max(8, Math.min(e.clientX + 14, window.innerWidth - tipEl.offsetWidth - 8))}px`;
+      tipEl.style.top = `${e.clientY + 16}px`;
+    }
+    const hideTip = () => { tipEl.hidden = true; };
+    function bindCopy(root) {
+      for (const b of root.querySelectorAll('[data-copy]')) {
+        if (b.dataset.bound) continue;
+        b.dataset.bound = '1';
+        b.addEventListener('click', async () => {
+          const old = b.dataset.label || (b.dataset.label = b.textContent);
+          try { await navigator.clipboard.writeText(b.dataset.copy); b.textContent = 'Copied'; } catch { b.textContent = 'Select and copy it by hand'; }
+          setTimeout(() => { b.textContent = old; }, 1500);
+        });
+      }
+    }
+    const SVGNS = 'http://www.w3.org/2000/svg';
+    const svgEl = (tag, attrs) => {
+      const n = document.createElementNS(SVGNS, tag);
+      for (const [k, v] of Object.entries(attrs || {})) n.setAttribute(k, String(v));
+      return n;
+    };
+
+    // ---- tools: one place for each app the agent can use (what it did, and how to connect or disconnect it)
+    const TOOLS = [
+      {
+        id: 'google', name: 'Google', blurb: 'Gmail drafts and your calendar.',
+        can: ['Saves email drafts in Gmail for you to look over. It never sends email and never reads your inbox.', 'Reads your Google Calendar to answer questions. It never changes events.'],
+        actions: ['list_events', 'draft_email'], connect: '/connect google', disconnect: '/disconnect google',
+        hint: 'On Google’s screen, tick Select all before you continue. The boxes start unticked, and the agent needs both to work.',
+      },
+      {
+        id: 'github', name: 'GitHub', blurb: 'The code projects you choose.',
+        can: ['Looks at the projects you choose.', 'Only after your yes, puts a change on a new branch as a pull request. It never changes your main branch.'],
+        actions: ['list_repos', 'list_prs', 'build_status', 'code_task', 'cloud_ok', 'push_change'], names: true,
+        connect: '/connect github', disconnect: '/disconnect github',
+      },
+      {
+        id: 'files', name: 'Files and spreadsheets', blurb: 'Files and spreadsheets the agent makes for you.',
+        can: ['Creates and edits text files and spreadsheets in your own workspace.'],
+        actions: ['write_file', 'write_excel', 'view_excel', 'edit_excel'], names: true,
+      },
+      {
+        id: 'notes', name: 'Notes', blurb: 'Quick notes you ask it to keep.',
+        can: ['Keeps short notes and reads them back to you.'],
+        actions: ['add_note', 'list_notes'],
+      },
     ];
-    const conns = {
-      busy: false, loaded: false,
+    let toolOpen = null; // the tool whose page is showing, or null for the list
+    const tools = {
+      busy: false, rows: [],
       async load() {
         if (this.busy) return;
         this.busy = true;
-        const err = $('conn-err');
+        const err = $('tools-err');
         err.hidden = true;
         try {
           const { data: rows, error } = await db.from('agent_logs').select('ts,kind,action,status,detail')
             .neq('kind', 'chat').order('id', { ascending: false }).limit(1000);
           if (error) throw error;
-          this.render(rows || []);
-          this.loaded = true;
-          $('conn-updated').textContent = `Updated ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+          this.rows = rows || [];
+          this.render();
+          $('tools-updated').textContent = `Updated ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
         } catch (e) {
           if (isAuthError(e)) return sessionExpired();
-          err.textContent = "Couldn't load your connections. Try Refresh in a moment.";
+          err.textContent = "Couldn't load your tools. Try Refresh in a moment.";
           err.hidden = false;
         } finally { this.busy = false; }
       },
-      render(rows) {
-        const box = $('conn-list');
+      mine(t) { return this.rows.filter((r) => t.actions.includes(r.action)); },
+      render() {
+        const box = $('tools-grid');
         box.replaceChildren();
-        for (const c of CONNS) {
-          const mine = rows.filter((r) => c.actions.includes(r.action));
-          const done = mine.filter((r) => r.status === 'done');
+        for (const t of TOOLS) {
+          const mine = this.mine(t);
+          const done = mine.filter((r) => r.status === 'done').length;
           const failed = mine.filter((r) => r.status === 'failed').length;
-          const card = el('article', 'conn');
-          card.appendChild(el('h2', null, c.name));
-          card.appendChild(el('p', 'muted small', c.blurb));
-          if (!done.length && !failed) {
-            card.appendChild(el('p', 'conn-none', 'Not used yet.'));
-            box.appendChild(card);
-            continue;
+          const card = el('button', 'conn');
+          card.type = 'button';
+          card.dataset.tool = t.id;
+          card.appendChild(el('h2', null, t.name));
+          card.appendChild(el('p', 'muted small', t.blurb));
+          if (!done && !failed) card.appendChild(el('p', 'conn-none', 'Not used yet'));
+          else {
+            const big = el('p', 'conn-count');
+            big.appendChild(el('strong', null, String(done)));
+            big.appendChild(document.createTextNode(done === 1 ? ' time used' : ' times used'));
+            if (failed) big.appendChild(el('span', 'badge b-failed', `${failed} failed`));
+            card.appendChild(big);
           }
+          card.appendChild(el('span', 'tool-open', 'OPEN →'));
+          card.addEventListener('click', () => this.open(t.id));
+          box.appendChild(card);
+        }
+        if (toolOpen) this.renderDetail(toolOpen);
+      },
+      open(id) { toolOpen = id; this.renderDetail(id); },
+      close() { toolOpen = null; $('tool-detail').hidden = true; $('tools-list').hidden = false; },
+      renderDetail(id) {
+        const t = TOOLS.find((x) => x.id === id);
+        if (!t) return this.close();
+        $('tools-list').hidden = true;
+        $('tool-detail').hidden = false;
+        $('td-name').textContent = t.name;
+        $('td-blurb').textContent = t.blurb;
+        const mine = this.mine(t);
+        const done = mine.filter((r) => r.status === 'done');
+        const failed = mine.filter((r) => r.status === 'failed').length;
+        // what it can do and what it has done
+        const u = $('td-usage');
+        u.replaceChildren();
+        u.appendChild(el('h2', null, 'What it can do'));
+        const ul = el('ul');
+        for (const c of t.can) ul.appendChild(el('li', null, c));
+        u.appendChild(ul);
+        u.appendChild(el('h2', null, 'What it has done'));
+        if (!done.length && !failed) u.appendChild(el('p', 'conn-none', 'Not used yet.'));
+        else {
           const big = el('p', 'conn-count');
           big.appendChild(el('strong', null, String(done.length)));
           big.appendChild(document.createTextNode(done.length === 1 ? ' time used' : ' times used'));
           if (failed) big.appendChild(el('span', 'badge b-failed', `${failed} failed`));
-          card.appendChild(big);
-          if (done.length) card.appendChild(el('p', 'muted small', `Last used ${fmtWhen(done[0].ts)}`));
+          u.appendChild(big);
+          if (done.length) u.appendChild(el('p', 'muted small', `Last used ${fmtWhen(done[0].ts)}`));
           const by = new Map();
           for (const r of done) by.set(r.action, (by.get(r.action) || 0) + 1);
           if (by.size) {
-            const ul = el('ul', 'conn-what');
-            for (const [a, n] of [...by].sort((x, y) => y[1] - x[1])) ul.appendChild(el('li', null, `${LABEL[a] || a.replace(/_/g, ' ')}: ${n}`));
-            card.appendChild(ul);
+            const list = el('ul', 'conn-what');
+            for (const [a, n] of [...by].sort((x, y) => y[1] - x[1])) list.appendChild(el('li', null, `${LABEL[a] || a.replace(/_/g, ' ')}: ${n}`));
+            u.appendChild(list);
           }
-          if (c.names) {
+          if (t.names) {
             const seen = [];
             for (const r of done) if (r.detail && !seen.includes(r.detail)) seen.push(r.detail);
             if (seen.length) {
-              const t = el('p', 'small');
-              t.appendChild(el('b', null, 'Worked with: '));
-              t.appendChild(document.createTextNode(seen.slice(0, 6).join(', ') + (seen.length > 6 ? ` and ${seen.length - 6} more` : '')));
-              card.appendChild(t);
+              const p = el('p', 'small');
+              p.appendChild(el('b', null, 'Worked with: '));
+              p.appendChild(document.createTextNode(seen.slice(0, 6).join(', ') + (seen.length > 6 ? ` and ${seen.length - 6} more` : '')));
+              u.appendChild(p);
             }
           }
-          box.appendChild(card);
         }
-        $('conn-note').hidden = false;
+        // connect / disconnect (these happen in Telegram for now)
+        const m = $('td-manage');
+        m.replaceChildren();
+        if (t.connect) {
+          m.appendChild(el('h2', null, 'Connect or disconnect'));
+          const p1 = el('p', 'small', 'To connect, send this to your agent in Telegram. It replies with a link to approve in your browser.');
+          m.appendChild(p1);
+          const c1 = el('button', 'chip', t.connect); c1.type = 'button'; c1.dataset.copy = t.connect; m.appendChild(c1);
+          if (t.hint) m.appendChild(el('p', 'small', t.hint));
+          m.appendChild(el('p', 'small', 'To disconnect, send this. It removes the access your agent has saved.'));
+          const c2 = el('button', 'chip', t.disconnect); c2.type = 'button'; c2.dataset.copy = t.disconnect; m.appendChild(c2);
+          m.appendChild(el('p', 'muted small', 'This page can’t show whether an account is connected yet. Send /connections in Telegram to check.'));
+        } else {
+          m.appendChild(el('h2', null, 'Nothing to connect'));
+          m.appendChild(el('p', 'small', 'This works as soon as you ask. Just tell your agent in Telegram what you want.'));
+        }
+        if (cfg.bot) {
+          const a = el('a', 'btn small', 'Open in Telegram');
+          a.href = `https://t.me/${cfg.bot}`; a.target = '_blank'; a.rel = 'noopener noreferrer';
+          const wrap = el('p', 'td-actions'); wrap.appendChild(a); m.appendChild(wrap);
+        }
+        bindCopy(m);
+        // recent activity for this tool
+        const body = $('td-rows');
+        body.replaceChildren();
+        for (const r of mine.slice(0, 15)) {
+          const tr = el('tr');
+          tr.appendChild(el('td', 'when', fmtWhen(r.ts)));
+          const what = el('td', 'what');
+          what.appendChild(el('b', null, labelFor(r)));
+          if (t.names && r.detail && r.status === 'done') what.appendChild(el('span', 'detail', r.detail));
+          tr.appendChild(what);
+          const [text, cls] = STATUS[r.status] || [r.status || '—', 'other'];
+          const res = el('td');
+          res.appendChild(el('span', `badge b-${cls}`, text));
+          tr.appendChild(res);
+          body.appendChild(tr);
+        }
+        $('td-none').hidden = mine.length > 0;
+        $('td-tbl').hidden = mine.length === 0;
       },
     };
-    $('conn-refresh').addEventListener('click', () => conns.load());
+    $('tools-refresh').addEventListener('click', () => tools.load());
+    $('tool-back').addEventListener('click', () => tools.close());
+
+    // ---- chat: messages drop to the bottom like ChatGPT, with typing dots while the agent answers
+    const chat = {
+      busy: false, api: cfg.chatApi,
+      init() {
+        const input = $('chat-input'), send = $('chat-send');
+        if (!this.api) {
+          input.disabled = true; send.disabled = true;
+          input.placeholder = 'Chat from this page isn’t switched on yet. Use Telegram for now.';
+          return;
+        }
+        input.addEventListener('input', () => this.grow());
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); this.send(); } });
+        send.addEventListener('click', () => this.send());
+      },
+      grow() { const i = $('chat-input'); i.style.height = 'auto'; i.style.height = `${Math.min(i.scrollHeight, 180)}px`; },
+      add(cls, text) {
+        $('chat-hero').hidden = true; $('chat-thread').hidden = false; $('view-chat').classList.add('started');
+        const m = el('div', `msg ${cls}`, text);
+        $('chat-thread').appendChild(m);
+        $('chat-thread').scrollTop = $('chat-thread').scrollHeight;
+        return m;
+      },
+      dots() {
+        const m = this.add('agent');
+        const t = el('span', 'typing');
+        t.setAttribute('role', 'status'); t.setAttribute('aria-label', 'Your agent is typing');
+        for (let i = 0; i < 3; i++) t.appendChild(el('span'));
+        m.appendChild(t);
+        return m;
+      },
+      reset() {
+        if (this.busy) return;
+        $('chat-thread').replaceChildren(); $('chat-thread').hidden = true; $('chat-hero').hidden = false;
+        $('view-chat').classList.remove('started');
+      },
+      async send() {
+        const input = $('chat-input');
+        const text = input.value.trim();
+        if (this.busy || !text) return;
+        input.value = ''; this.grow();
+        this.busy = true; $('chat-send').disabled = true;
+        this.add('me', text);
+        const dots = this.dots();
+        try {
+          const { data: s } = await db.auth.getSession();
+          const token = s.session && s.session.access_token;
+          if (!token) { dots.remove(); return sessionExpired(); }
+          const ctl = new AbortController();
+          const timer = setTimeout(() => ctl.abort(), 90000);
+          let res;
+          try {
+            res = await fetch(this.api, {
+              method: 'POST', signal: ctl.signal,
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'ngrok-skip-browser-warning': '1' },
+              body: JSON.stringify({ message: text }),
+            });
+          } finally { clearTimeout(timer); }
+          if (res.status === 401) { dots.remove(); return sessionExpired(); }
+          if (!res.ok) throw new Error(`status ${res.status}`);
+          const out = await res.json();
+          const replies = Array.isArray(out.replies) ? out.replies.map(String).filter(Boolean).slice(0, 10) : [];
+          dots.remove();
+          if (!replies.length) this.add('agent', 'Done.');
+          for (const r of replies) this.add('agent', r.slice(0, 4000));
+        } catch {
+          dots.remove();
+          this.add('err', 'Couldn’t reach your agent. Check that it’s running, then try again.');
+        } finally {
+          this.busy = false; $('chat-send').disabled = false; input.focus();
+        }
+      },
+    };
+    chat.init();
+
+    // ---- log charts: what the agent handled, and activity by day (counts only, built from metadata)
+    const KINDS = [['chat', 'Chats', 's1'], ['action', 'Actions', 's2'], ['command', 'Commands', 's3'], ['blocked', 'Held back', 's4'], ['error', 'Errors', 's5']];
+    const dayKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const charts = {
+      busy: false, rows: [],
+      async load() {
+        if (this.busy) return;
+        this.busy = true;
+        try {
+          const { data: rows, error } = await db.from('agent_logs').select('ts,kind').order('id', { ascending: false }).limit(2000);
+          if (error) throw error;
+          this.rows = rows || [];
+          this.render();
+        } catch (e) {
+          if (isAuthError(e)) return sessionExpired();
+          $('charts').hidden = true;
+        } finally { this.busy = false; }
+      },
+      render() {
+        const rows = this.rows;
+        $('charts').hidden = rows.length === 0;
+        if (!rows.length) return;
+        this.donut(rows);
+        this.bars(rows);
+      },
+      donut(rows) {
+        const counts = new Map(KINDS.map(([k]) => [k, 0]));
+        for (const r of rows) if (counts.has(r.kind)) counts.set(r.kind, counts.get(r.kind) + 1);
+        const total = [...counts.values()].reduce((a, b) => a + b, 0);
+        $('kinds-sub').textContent = rows.length >= 2000 ? `Your latest ${total} entries.` : `${total} entries in total.`;
+        const svg = $('donut'), legend = $('legend'), tbody = $('kinds-rows');
+        svg.replaceChildren(); legend.replaceChildren(); tbody.replaceChildren();
+        const R = 58, C = 2 * Math.PI * R;
+        let offset = 0;
+        for (const [kind, label, cls] of KINDS) {
+          const n = counts.get(kind);
+          if (!n) continue;
+          const pct = Math.round((n / total) * 100);
+          const len = (n / total) * C;
+          const shown = len >= C - 0.01 ? C : Math.max(len - 2, 0.5); // a 2px gap between slices
+          const c = svgEl('circle', { cx: 75, cy: 75, r: R, class: cls, 'stroke-dasharray': `${shown} ${C}`, 'stroke-dashoffset': -offset, transform: 'rotate(-90 75 75)' });
+          const tip = `${label}: ${n} (${pct}%)`;
+          c.addEventListener('mousemove', (e) => showTip(e, tip)); c.addEventListener('mouseleave', hideTip);
+          svg.appendChild(c);
+          offset += len;
+          const li = el('li');
+          li.appendChild(el('span', `sw ${cls}`));
+          li.appendChild(el('span', null, label));
+          li.appendChild(el('span', 'n', `${n} · ${pct}%`));
+          li.addEventListener('mousemove', (e) => showTip(e, tip)); li.addEventListener('mouseleave', hideTip);
+          legend.appendChild(li);
+          const tr = el('tr'); tr.appendChild(el('td', null, label)); tr.appendChild(el('td', null, String(n))); tbody.appendChild(tr);
+        }
+        const big = svgEl('text', { x: 75, y: 80, 'text-anchor': 'middle', 'font-size': 26 }); big.textContent = String(total);
+        const sub = svgEl('text', { x: 75, y: 97, 'text-anchor': 'middle', 'font-size': 10, class: 't-sub' }); sub.textContent = 'entries';
+        svg.appendChild(big); svg.appendChild(sub);
+      },
+      bars(rows) {
+        const DAYS = 14;
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const days = [];
+        for (let i = DAYS - 1; i >= 0; i--) { const d = new Date(today); d.setDate(today.getDate() - i); days.push({ d, key: dayKey(d), chat: 0, act: 0, bad: 0 }); }
+        const byKey = new Map(days.map((x) => [x.key, x]));
+        for (const r of rows) {
+          const t = new Date(r.ts);
+          if (Number.isNaN(t.getTime())) continue;
+          const x = byKey.get(dayKey(t));
+          if (!x) continue;
+          if (r.kind === 'chat') x.chat++; else if (r.kind === 'action' || r.kind === 'command') x.act++; else x.bad++;
+        }
+        for (const x of days) x.total = x.chat + x.act + x.bad;
+        const sum = days.reduce((a, x) => a + x.total, 0);
+        $('days-sub').textContent = sum ? `Last ${DAYS} days. ${sum} in total.` : `Nothing in the last ${DAYS} days.`;
+        const svg = $('bars');
+        svg.replaceChildren();
+        const W = Math.max(280, Math.round(svg.parentElement.clientWidth) || 560), H = 190;
+        svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+        const L = 30, Rr = 6, T = 18, B = 28, pw = W - L - Rr, ph = H - T - B;
+        const peak = Math.max(...days.map((x) => x.total), 0);
+        const top = Math.max(4, peak <= 10 ? Math.ceil(peak / 2) * 2 : Math.ceil(peak / 5) * 5);
+        const y = (v) => T + ph - (v / top) * ph;
+        for (const v of [0, top / 2, top]) {
+          svg.appendChild(svgEl('line', { x1: L, x2: W - Rr, y1: y(v), y2: y(v), class: 'grid' }));
+          const lab = svgEl('text', { x: L - 6, y: y(v) + 4, 'text-anchor': 'end', class: 'axis' }); lab.textContent = String(Math.round(v)); svg.appendChild(lab);
+        }
+        const slot = pw / DAYS, bw = Math.max(8, Math.min(22, slot * 0.6));
+        const labelEvery = slot < 30 ? 3 : 2;
+        const tbody = $('days-rows'); tbody.replaceChildren();
+        days.forEach((x, i) => {
+          const cx = L + slot * i + slot / 2, bx = cx - bw / 2;
+          const g = svgEl('g');
+          g.appendChild(svgEl('rect', { x: L + slot * i, y: T, width: slot, height: ph, class: 'hit' }));
+          const h = (x.total / top) * ph;
+          if (h > 0) {
+            const r = Math.min(3, h), yy = T + ph - h;
+            g.appendChild(svgEl('path', { class: 'bar', d: `M${bx},${yy + h} L${bx},${yy + r} Q${bx},${yy} ${bx + r},${yy} L${bx + bw - r},${yy} Q${bx + bw},${yy} ${bx + bw},${yy + r} L${bx + bw},${yy + h} Z` }));
+          }
+          const when = x.d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+          const tip = `${when}: ${x.total} (${x.chat} chat${x.chat === 1 ? '' : 's'}, ${x.act} action${x.act === 1 ? '' : 's'}, ${x.bad} held back or failed)`;
+          g.addEventListener('mousemove', (e) => showTip(e, tip)); g.addEventListener('mouseleave', hideTip);
+          svg.appendChild(g);
+          if (i % labelEvery === (DAYS - 1) % labelEvery) {
+            const lab = svgEl('text', { x: cx, y: H - 8, 'text-anchor': 'middle', class: 'axis' }); lab.textContent = when; svg.appendChild(lab);
+          }
+          if (x.total === peak && peak > 0 && !days.slice(0, i).some((p) => p.total === peak)) {
+            const v = svgEl('text', { x: cx, y: y(x.total) - 5, 'text-anchor': 'middle', class: 'val' }); v.textContent = String(x.total); svg.appendChild(v);
+          }
+          const tr = el('tr');
+          for (const c of [when, x.chat, x.act, x.bad]) tr.appendChild(el('td', null, String(c)));
+          tbody.insertBefore(tr, tbody.firstChild);
+        });
+      },
+    };
+    let resizeT = null;
+    window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(() => { if (charts.rows.length && view === 'logs') charts.bars(charts.rows); }, 150); });
 
     // ---- get started: install Telegram -> open the agent -> connect tools -> try it
     const STEPS = ['telegram', 'agent', 'connect', 'try'];
@@ -403,13 +721,7 @@
     $('steps-reset').addEventListener('click', () => { stepsDone = []; try { localStorage.removeItem(stepKey); } catch { /* ignore */ } renderSteps(); });
     $('go-logs').addEventListener('click', () => show('logs'));
     $('go-help').addEventListener('click', () => show('help'));
-    for (const b of document.querySelectorAll('[data-copy]')) {
-      b.addEventListener('click', async () => {
-        const old = b.dataset.label || (b.dataset.label = b.textContent);
-        try { await navigator.clipboard.writeText(b.dataset.copy); b.textContent = 'Copied'; } catch { b.textContent = 'Select and copy it by hand'; }
-        setTimeout(() => { b.textContent = old; }, 1500);
-      });
-    }
+    bindCopy(document);
     renderSteps();
 
     // ---- approval + personal link (Get started, step 2)
@@ -499,6 +811,7 @@
             clearInterval(watchTimer); watchTimer = null;
             linked = true; linkCode = '';
             $('agent-sub').textContent = signupName ? `Your agent for ${signupName}` : 'Your agent';
+            $('chat-sub').textContent = $('agent-sub').textContent;
             markStep('agent');
             setNotice('✅ Linked! Your agent is connected to this login. Next, connect your tools.', 'good');
             renderLinkState();
@@ -517,22 +830,24 @@
       const { data: link, error } = await db.from('tenant_users').select('chat_id').limit(1);
       if (error) throw error;
       linked = Array.isArray(link) && link.length > 0;
-      let hasLogs = false;
+      let hasLogs = false, logsFailed = false;
       if (linked) {
         const { data: last, error: lastErr } = await db.from('agent_logs').select('business').order('id', { ascending: false }).limit(1);
         if (lastErr && isAuthError(lastErr)) return sessionExpired();
+        logsFailed = Boolean(lastErr);
+        hasLogs = Boolean(last && last.length) || logsFailed;
         let name = last && last[0] && last[0].business;
-        hasLogs = Boolean(last && last.length) || Boolean(lastErr); // on an error, open Logs so the message shows
         if (!name) {
           const { data: su } = await db.from('signups').select('business_name').limit(1);
           const n = su && su[0] && su[0].business_name;
           if (n && n !== '(existing login)') name = n;
         }
         $('agent-sub').textContent = name ? `Your agent for ${name}` : 'Your agent';
+        $('chat-sub').textContent = $('agent-sub').textContent;
       } else {
         await refreshSignup();
       }
-      if (!view) view = linked && hasLogs ? 'logs' : 'start'; // new or unlinked accounts start at Get started
+      if (!view) view = linked && hasLogs ? (logsFailed ? 'logs' : 'chat') : 'start'; // an active agent lands on Chat (Logs if they can't load, so the message shows); new or unlinked accounts start at Get started
       renderLinkState();
     } catch (e) {
       if (isAuthError(e)) return sessionExpired();
