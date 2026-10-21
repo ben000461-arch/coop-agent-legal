@@ -1,9 +1,10 @@
-!doctype html>
+<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.supabase.co https://oversized-extradite-unbroken.ngrok-free.dev; base-uri 'none'; form-action 'self'">
 <meta name="referrer" content="no-referrer">
 <title>Dashboard — co|op Agent</title>
 <link rel="stylesheet" href="app.css">
+<script src="theme.js"></script>
 </head>
 <body data-page="dashboard">
 <div id="fatal" class="fatal" hidden><div class="box" role="alert"></div></div>
@@ -19,6 +20,7 @@
     <button type="button" data-view="agent">Agent</button>
     <button type="button" data-view="logs">Logs</button>
     <button type="button" data-view="help">Help</button>
+    <button type="button" data-view="settings">Settings</button>
   </nav>
   <main class="main">
     <section id="unlinked" class="panel" hidden>
@@ -170,6 +172,7 @@
           <svg id="bars" class="bars" viewBox="0 0 560 190" role="img" aria-labelledby="days-sub"></svg>
           <details class="chart-table"><summary>View as table</summary><table><thead><tr><th>Day</th><th>Chats</th><th>Actions</th><th>Held back or failed</th></tr></thead><tbody id="days-rows"></tbody></table></details>
         </div>
+        <div class="chart usage" id="usage-logs"></div>
       </div>
       <div id="err" class="error" role="alert" hidden></div>
       <div id="empty" class="empty" hidden></div>
@@ -224,6 +227,74 @@
           <li>Pasted passwords and keys are refused, so don’t send them in the chat.</li>
         </ul>
         <p class="muted small">More in our <a href="privacy.html">privacy page</a>.</p>
+      </div>
+    </section>
+
+    <section id="view-settings" hidden>
+      <h1>Settings</h1>
+      <div class="set-wrap">
+        <nav class="set-nav" aria-label="Settings sections">
+          <button type="button" data-set="profile" aria-current="true">My details</button>
+          <button type="button" data-set="appearance">Appearance</button>
+          <button type="button" data-set="plan">Plan and billing</button>
+          <button type="button" data-set="usage">Usage</button>
+          <button type="button" data-set="security">Password</button>
+        </nav>
+        <div>
+          <div id="set-profile" class="set-pane">
+            <div class="set-head"><div><h2>My details</h2><p class="muted small">Update your personal details here.</p></div>
+              <div class="set-actions"><button id="profile-cancel" class="btn ghost small" type="button">Cancel</button><button id="profile-save" class="btn small" type="button">Save</button></div></div>
+            <div class="set-row"><div><b>Name</b><span>Shown to your team and on invoices.</span></div>
+              <div><label for="set-name">Full name</label><input id="set-name" type="text" maxlength="80" autocomplete="name"></div></div>
+            <div class="set-row"><div><b>Email</b><span>You log in with this. Contact us to change it.</span></div>
+              <div><label for="set-email">Email address</label><input id="set-email" type="email" disabled></div></div>
+            <div class="set-row"><div><b>Business</b><span>Set when you signed up. Email us to change it.</span></div>
+              <div><label for="set-biz">Business name</label><input id="set-biz" type="text" disabled></div></div>
+            <p id="profile-msg" class="set-msg" role="status" hidden></p>
+          </div>
+          <div id="set-appearance" class="set-pane" hidden>
+            <div class="set-head"><div><h2>Appearance</h2><p class="muted small">Choose how the dashboard looks.</p></div></div>
+            <div class="set-row"><div><b>Theme</b><span>Saved on this device only.</span></div>
+              <div class="opts" role="radiogroup" aria-label="Theme">
+                <button type="button" class="opt" role="radio" data-theme-opt="dark" aria-checked="false"><span class="dot"></span>Dark</button>
+                <button type="button" class="opt" role="radio" data-theme-opt="light" aria-checked="false"><span class="dot"></span>Light</button>
+                <button type="button" class="opt" role="radio" data-theme-opt="system" aria-checked="false"><span class="dot"></span>Match my device</button>
+              </div></div>
+          </div>
+          <div id="set-plan" class="set-pane" hidden>
+            <div class="set-head"><div><h2>Plan and billing</h2><p class="muted small">Your plan and where invoices go.</p></div>
+              <div class="set-actions"><button id="billing-save" class="btn small" type="button">Save</button></div></div>
+            <div class="set-row"><div><b>Current plan</b><span>What you’re on today.</span></div>
+              <div class="plan-card"><strong>Pilot</strong> <span class="badge b-done">Free</span><p class="muted small tight">You’re in the co|op pilot. Nothing is charged. We’ll email you well before any paid plan starts.</p></div></div>
+            <div class="set-row"><div><b>Payment method</b><span>How you’ll pay once billing starts.</span></div>
+              <div><p class="small tight">No card on file. Card payments aren’t switched on yet, so this site never asks for card details.</p><button class="btn ghost small" type="button" disabled>Add payment method</button></div></div>
+            <div class="set-row"><div><b>Billing details</b><span>Used on invoices. No card numbers here.</span></div>
+              <div>
+                <div class="fld"><label for="bill-name">Billing name</label><input id="bill-name" type="text" maxlength="120" autocomplete="name"></div>
+                <div class="fld"><label for="bill-company">Company</label><input id="bill-company" type="text" maxlength="120" autocomplete="organization"></div>
+                <div class="fld"><label for="bill-email">Billing email</label><input id="bill-email" type="email" maxlength="160" autocomplete="email"></div>
+                <div class="fld"><label for="bill-address">Address</label><textarea id="bill-address" rows="3" maxlength="300" autocomplete="street-address"></textarea></div>
+              </div></div>
+            <div class="set-row"><div><b>Invoices</b><span>Past payments.</span></div><div class="muted small">No invoices yet.</div></div>
+            <p id="billing-msg" class="set-msg" role="status" hidden></p>
+          </div>
+          <div id="set-usage" class="set-pane" hidden>
+            <div class="set-head"><div><h2>Usage</h2><p class="muted small">How much of your monthly allowance you’ve used.</p></div></div>
+            <div class="set-row"><div><b>This month</b><span>Chats and actions your agent handled.</span></div><div id="usage-set"></div></div>
+          </div>
+          <div id="set-security" class="set-pane" hidden>
+            <div class="set-head"><div><h2>Password</h2><p class="muted small">Change your password or sign out everywhere.</p></div>
+              <div class="set-actions"><button id="pw-save" class="btn small" type="button">Update password</button></div></div>
+            <div class="set-row"><div><b>New password</b><span>At least 8 characters.</span></div>
+              <div>
+                <div class="fld"><label for="pw-new">New password</label><input id="pw-new" type="password" autocomplete="new-password"></div>
+                <div class="fld"><label for="pw-again">Confirm new password</label><input id="pw-again" type="password" autocomplete="new-password"></div>
+              </div></div>
+            <div class="set-row"><div><b>Other devices</b><span>Signs you out on every phone and computer.</span></div>
+              <div><button id="signout-all" class="btn ghost small" type="button">Log out everywhere</button></div></div>
+            <p id="pw-msg" class="set-msg" role="status" hidden></p>
+          </div>
+        </div>
       </div>
     </section>
 

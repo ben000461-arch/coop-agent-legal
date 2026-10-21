@@ -47,7 +47,9 @@
     const bot = /^[A-Za-z0-9_]{5,32}$/.test(String(c.TELEGRAM_BOT || '')) ? String(c.TELEGRAM_BOT) : '';
     let chatApi = String(c.CHAT_API || '').trim();
     if (chatApi && !(/^https:\/\/[a-z0-9.-]+(:\d+)?(\/[A-Za-z0-9._~\-\/]*)?$/i.test(chatApi) || /^\/(?!\/)[A-Za-z0-9._~\-\/]*$/.test(chatApi))) chatApi = ''; // only an https address (or a path on this site) is accepted
-    return { url, key, bot, chatApi };
+    const lim = parseInt(c.USAGE_LIMIT, 10);
+    const usageLimit = Number.isFinite(lim) && lim > 0 && lim <= 10000000 ? lim : 500;
+    return { url, key, bot, chatApi, usageLimit };
   }
 
   // ---- login and sign-up ------------------------------------------------------------------
@@ -209,8 +211,8 @@
     const isAuthError = (e) => e && (e.status === 401 || e.code === 'PGRST301' || /jwt/i.test(e.message || ''));
 
     // which view is showing
-    const VIEWS = ['chat', 'tools', 'start', 'agent', 'logs', 'help'];
-    const NEEDS_AGENT = new Set(['chat', 'tools', 'agent', 'logs']); // Get started and Help work for anyone
+    const VIEWS = ['chat', 'tools', 'start', 'agent', 'logs', 'help', 'settings'];
+    const NEEDS_AGENT = new Set(['chat', 'tools', 'agent', 'logs']); // Get started, Help and Settings work for anyone
     const fromHash = location.hash.slice(1);
     let view = VIEWS.includes(fromHash) ? fromHash : null; // chosen after we know if the login is linked
     let linked = null; // null = not known yet
@@ -228,6 +230,7 @@
       }
       if (v === 'logs' && linked === true && !logs.started) logs.start();
       if (v === 'tools' && linked === true) tools.load();
+      if (v === 'settings') settings.open();
     }
     for (const b of document.querySelectorAll('.side button[data-view]')) {
       b.addEventListener('click', () => {
@@ -603,6 +606,7 @@
         if (!rows.length) return;
         this.donut(rows);
         this.bars(rows);
+        renderUsage($('usage-logs'));
       },
       donut(rows) {
         const counts = new Map(KINDS.map(([k]) => [k, 0]));
@@ -690,6 +694,126 @@
           for (const c of [when, x.chat, x.act, x.bad]) tr.appendChild(el('td', null, String(c)));
           tbody.insertBefore(tr, tbody.firstChild);
         });
+      },
+    };
+
+    // ---- usage: requests (chats and actions) this calendar month against the monthly allowance
+    function usageNow() {
+      const start = new Date(); start.setDate(1); start.setHours(0, 0, 0, 0);
+      const rows = charts.rows;
+      let used = 0;
+      for (const r of rows) { if ((r.kind === 'chat' || r.kind === 'action') && new Date(r.ts) >= start) used++; }
+      const oldest = rows.length ? new Date(rows[rows.length - 1].ts) : null;
+      const partial = rows.length >= 2000 && oldest && oldest >= start; // more rows than we load, so the count may be low
+      return { used, partial };
+    }
+    function renderUsage(box) {
+      if (!box) return;
+      const limit = cfg.usageLimit, { used, partial } = usageNow();
+      const pct = Math.min(100, Math.round((used / limit) * 100));
+      const level = used >= limit ? 'red' : used / limit >= 0.8 ? 'yellow' : used / limit >= 0.5 ? 'green' : 'blue';
+      const word = { blue: 'Plenty left', green: 'On track', yellow: 'Running low', red: 'Allowance used up' }[level];
+      box.replaceChildren();
+      box.className = box.className.replace(/\bu-(blue|green|yellow|red)\b/g, '').trim() + ` u-${level}`;
+      box.appendChild(el('h2', null, 'Usage this month'));
+      const head = el('div', 'usage-head');
+      const big = el('span');
+      big.appendChild(el('strong', null, `${partial ? 'at least ' : ''}${used}`));
+      big.appendChild(document.createTextNode(` of ${limit} requests · ${Math.round((used / limit) * 100)}%`));
+      head.appendChild(big);
+      head.appendChild(el('span', 'u-pill', word));
+      box.appendChild(head);
+      const track = el('div', 'u-track');
+      track.setAttribute('role', 'progressbar'); track.setAttribute('aria-valuemin', '0'); track.setAttribute('aria-valuemax', String(limit));
+      track.setAttribute('aria-valuenow', String(Math.min(used, limit))); track.setAttribute('aria-label', `Usage this month: ${word}`);
+      const fill = el('div', 'u-fill'); fill.style.width = `${pct}%`;
+      track.appendChild(fill); box.appendChild(track);
+      const key = el('ul', 'u-key');
+      for (const [c, t] of [['var(--u-blue)', 'Under half'], ['var(--u-green)', '50% to 79%'], ['var(--u-yellow)', '80% or more, running low'], ['var(--u-red)', 'Used up']]) {
+        const li = el('li'); const i = el('i'); i.style.background = c; li.appendChild(i); li.appendChild(document.createTextNode(t)); key.appendChild(li);
+      }
+      box.appendChild(key);
+      box.appendChild(el('p', 'muted small', `Counts your chats and actions since the 1st. The ${limit}-request allowance is a pilot placeholder and nothing is switched off if you pass it.`));
+    }
+
+    // ---- settings: details, appearance, plan and billing, usage, password
+    const settings = {
+      pane: 'profile', wired: false,
+      meta() { return (data.session.user.user_metadata) || {}; },
+      say(id, text, ok) { const m = $(id); m.textContent = text; m.className = `set-msg ${ok ? 'ok-note' : 'error'}`; m.hidden = !text; },
+      fillProfile() {
+        const m = this.meta();
+        $('set-name').value = m.full_name || '';
+        $('set-email').value = data.session.user.email || '';
+        const biz = $('agent-sub').textContent.replace(/^Your agent( for )?/, '');
+        $('set-biz').value = biz || m.business_name || '';
+        const b = m.billing || {};
+        $('bill-name').value = b.name || ''; $('bill-company').value = b.company || ''; $('bill-email').value = b.email || ''; $('bill-address').value = b.address || '';
+        this.say('profile-msg', ''); this.say('billing-msg', ''); this.say('pw-msg', '');
+      },
+      themeUi() {
+        const cur = window.coopTheme ? window.coopTheme.get() : 'dark';
+        for (const b of document.querySelectorAll('[data-theme-opt]')) b.setAttribute('aria-checked', String(b.dataset.themeOpt === cur));
+      },
+      go(p) {
+        this.pane = p;
+        for (const b of document.querySelectorAll('.set-nav [data-set]')) { if (b.dataset.set === p) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current'); }
+        for (const x of document.querySelectorAll('.set-pane')) x.hidden = x.id !== `set-${p}`;
+        if (p === 'usage') this.usage();
+      },
+      async usage() {
+        const box = $('usage-set');
+        if (linked !== true) { box.replaceChildren(el('p', 'muted small', 'Usage shows up once your agent is linked. Open Get started to link it.')); return; }
+        await charts.load();
+        renderUsage(box);
+      },
+      open() { this.fillProfile(); this.themeUi(); this.go(this.pane); if (!this.wired) this.wire(); },
+      async update(payload, msgId, okText) {
+        try {
+          const { data: res, error } = await db.auth.updateUser(payload);
+          if (error) throw error;
+          if (res && res.user) data.session.user.user_metadata = res.user.user_metadata || data.session.user.user_metadata;
+          this.say(msgId, okText, true);
+          return true;
+        } catch (e) {
+          if (isAuthError(e)) { sessionExpired(); return false; }
+          const code = e && (e.code || e.error_code);
+          this.say(msgId, code === 'same_password' ? 'That is already your password. Pick a new one.'
+            : code === 'weak_password' ? 'That password is too easy to guess. Use a longer one with letters and numbers.'
+            : "Couldn't save that. Try again in a moment.", false);
+          return false;
+        }
+      },
+      wire() {
+        this.wired = true;
+        for (const b of document.querySelectorAll('.set-nav [data-set]')) b.addEventListener('click', () => this.go(b.dataset.set));
+        for (const b of document.querySelectorAll('[data-theme-opt]')) b.addEventListener('click', () => { if (window.coopTheme) window.coopTheme.set(b.dataset.themeOpt); this.themeUi(); });
+        $('profile-cancel').addEventListener('click', () => this.fillProfile());
+        $('profile-save').addEventListener('click', async () => {
+          const name = $('set-name').value.trim();
+          if (name.length > 80) return this.say('profile-msg', 'That name is too long.', false);
+          const btn = $('profile-save'); btn.disabled = true;
+          await this.update({ data: { full_name: name } }, 'profile-msg', 'Saved.');
+          btn.disabled = false;
+        });
+        $('billing-save').addEventListener('click', async () => {
+          const email = $('bill-email').value.trim();
+          if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return this.say('billing-msg', 'Enter a valid billing email, or leave it blank.', false);
+          const billing = { name: $('bill-name').value.trim(), company: $('bill-company').value.trim(), email, address: $('bill-address').value.trim() };
+          const btn = $('billing-save'); btn.disabled = true;
+          await this.update({ data: { billing } }, 'billing-msg', 'Saved.');
+          btn.disabled = false;
+        });
+        $('pw-save').addEventListener('click', async () => {
+          const a = $('pw-new').value, b = $('pw-again').value;
+          if (a.length < 8) return this.say('pw-msg', 'Use at least 8 characters.', false);
+          if (a !== b) return this.say('pw-msg', 'The two passwords don’t match.', false);
+          const btn = $('pw-save'); btn.disabled = true;
+          const ok = await this.update({ password: a }, 'pw-msg', 'Password updated.');
+          if (ok) { $('pw-new').value = ''; $('pw-again').value = ''; }
+          btn.disabled = false;
+        });
+        $('signout-all').addEventListener('click', async () => { try { await db.auth.signOut({ scope: 'global' }); } finally { goLogin(); } });
       },
     };
     let resizeT = null;
