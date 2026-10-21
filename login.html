@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://*.supabase.co; base-uri 'none'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.supabase.co; base-uri 'none'; form-action 'self'">
 <meta name="referrer" content="no-referrer">
 <title>Log in — co|op Agent</title>
 <link rel="stylesheet" href="app.css">
@@ -9,7 +9,8 @@
 <div id="fatal" class="fatal" hidden><div class="box" role="alert"></div></div>
 <main id="app" class="center">
   <div class="card">
-    <h1>co|op Agent</h1>
+    <div class="coop-logo">co<span class="bar">|</span>op</div>
+    <h1>Your agent dashboard</h1>
     <p id="sub" class="muted">Log in to see what your agent has been doing.</p>
     <p id="note" class="ok-note" role="status" hidden></p>
     <form id="form" novalidate>
