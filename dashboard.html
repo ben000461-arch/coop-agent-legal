@@ -1,6 +1,6 @@
-<!doctype html>
+!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://*.supabase.co; base-uri 'none'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.supabase.co https://oversized-extradite-unbroken.ngrok-free.dev; base-uri 'none'; form-action 'self'">
 <meta name="referrer" content="no-referrer">
 <title>Dashboard — co|op Agent</title>
 <link rel="stylesheet" href="app.css">
@@ -9,13 +9,14 @@
 <div id="fatal" class="fatal" hidden><div class="box" role="alert"></div></div>
 <div id="app" class="shell" hidden>
   <header class="top">
-    <div class="brand">co|op Agent</div>
+    <div class="brand"><span class="coop-logo">co<span class="bar">|</span>op</span><span class="brand-sub">Agent</span></div>
     <div class="who"><span id="who"></span><button id="out" class="btn ghost small" type="button">Log out</button></div>
   </header>
   <nav class="side" aria-label="Sections">
+    <button type="button" class="newchat" data-view="chat">＋ New chat</button>
+    <button type="button" data-view="tools">Tools</button>
     <button type="button" data-view="start">Get started</button>
     <button type="button" data-view="agent">Agent</button>
-    <button type="button" data-view="connections">Connections</button>
     <button type="button" data-view="logs">Logs</button>
     <button type="button" data-view="help">Help</button>
   </nav>
@@ -24,6 +25,20 @@
       <h2>Your login isn’t linked to an agent yet</h2>
       <p>Open <strong>Get started</strong> to finish setting up and connect your agent in Telegram.</p>
       <p><button id="go-start" class="btn small" type="button">Go to Get started</button> <span class="muted small">Need help? Email <a href="mailto:cooptech126@gmail.com">cooptech126@gmail.com</a>.</span></p>
+    </section>
+
+    <section id="view-chat" class="chat" hidden>
+      <div id="chat-hero" class="chat-hero">
+        <h1>What should we work on?</h1>
+        <p id="chat-sub" class="muted">Your agent</p>
+      </div>
+      <div id="chat-thread" class="thread" role="log" aria-live="polite" aria-label="Conversation" hidden></div>
+      <div class="composer-wrap">
+        <div class="composer">
+          <textarea id="chat-input" rows="1" maxlength="2000" aria-label="Message your agent" placeholder="Message your agent…"></textarea>
+          <button id="chat-send" class="send" type="button" aria-label="Send">↑</button>
+        </div>
+      </div>
     </section>
 
     <section id="view-start" hidden>
@@ -79,7 +94,7 @@
       </ol>
       <div id="start-finished" class="panel" hidden>
         <h2>You’re all set</h2>
-        <p>Your agent is ready. See <strong>Connections</strong> for what each tool has done, or <button class="linklike" type="button" id="go-help">Help</button> for everything you can say.</p>
+        <p>Your agent is ready. See <strong>Tools</strong> for what each tool has done, or <button class="linklike" type="button" id="go-help">Help</button> for everything you can say.</p>
       </div>
       <p class="muted small"><button class="linklike" type="button" id="steps-reset">Start these steps over</button></p>
     </section>
@@ -98,18 +113,36 @@
           <li>Prepare code changes in the GitHub projects you choose, as a pull request, only after you say yes.</li>
         </ul>
         <h2>How it works</h2>
-        <p>It shows you what it is about to do and waits for your yes before it changes anything. Everything it does is listed on the Logs page, and the Connections page shows which tools it used.</p>
+        <p>It shows you what it is about to do and waits for your yes before it changes anything. Everything it does is listed on the Logs page, and the Tools page shows which tools it used.</p>
         <p><a id="open-tg" class="btn small" href="#" target="_blank" rel="noopener noreferrer" hidden>Open in Telegram</a></p>
       </div>
     </section>
 
-    <section id="view-connections" hidden>
-      <h1>Connections</h1>
-      <p class="muted">What each tool has done for you. This shows counts and file or project names only. It never shows the text of an email, a calendar event or a file.</p>
-      <div class="bar"><span class="spacer"></span><span id="conn-updated" class="muted small"></span><button id="conn-refresh" class="btn ghost small" type="button">Refresh</button></div>
-      <div id="conn-err" class="error" role="alert" hidden></div>
-      <div id="conn-list" class="conn-grid"></div>
-      <p id="conn-note" class="muted small" hidden>Based on your most recent activity. Connect or disconnect an account in Telegram with <code>/connect</code> or <code>/disconnect</code>.</p>
+    <section id="view-tools" hidden>
+      <div id="tools-list">
+        <h1>Tools</h1>
+        <p class="muted">The apps your agent can use. Pick one to see what it has done and how to connect or disconnect it. This shows counts and file or project names only, never the text of an email, an event or a file.</p>
+        <div class="bar"><span class="spacer"></span><span id="tools-updated" class="muted small"></span><button id="tools-refresh" class="btn ghost small" type="button">Refresh</button></div>
+        <div id="tools-err" class="error" role="alert" hidden></div>
+        <div id="tools-grid" class="conn-grid"></div>
+      </div>
+      <div id="tool-detail" hidden>
+        <p class="td-back"><button id="tool-back" class="linklike" type="button">← All tools</button></p>
+        <h1 id="td-name"></h1>
+        <p id="td-blurb" class="muted"></p>
+        <div class="td-grid">
+          <div class="panel" id="td-usage"></div>
+          <div class="panel" id="td-manage"></div>
+        </div>
+        <div class="td-recent">
+          <h2>Recent activity</h2>
+          <p id="td-none" class="empty" hidden>Nothing yet. Ask your agent to use it and it will show up here.</p>
+          <table id="td-tbl" hidden>
+            <thead><tr><th>When</th><th>What happened</th><th>Result</th></tr></thead>
+            <tbody id="td-rows"></tbody>
+          </table>
+        </div>
+      </div>
     </section>
 
     <section id="view-logs" hidden>
@@ -123,6 +156,20 @@
         <span class="spacer"></span>
         <span id="updated" class="muted small"></span>
         <button id="refresh" class="btn ghost small" type="button">Refresh</button>
+      </div>
+      <div id="charts" class="charts" hidden>
+        <div class="chart" id="chart-kinds">
+          <h2>What your agent handled</h2>
+          <p class="sub" id="kinds-sub"></p>
+          <div class="donut-row"><svg id="donut" class="donut" viewBox="0 0 150 150" role="img" aria-labelledby="kinds-sub"></svg><ul id="legend" class="legend"></ul></div>
+          <details class="chart-table"><summary>View as table</summary><table><thead><tr><th>Kind</th><th>Count</th></tr></thead><tbody id="kinds-rows"></tbody></table></details>
+        </div>
+        <div class="chart" id="chart-days">
+          <h2>Activity by day</h2>
+          <p class="sub" id="days-sub"></p>
+          <svg id="bars" class="bars" viewBox="0 0 560 190" role="img" aria-labelledby="days-sub"></svg>
+          <details class="chart-table"><summary>View as table</summary><table><thead><tr><th>Day</th><th>Chats</th><th>Actions</th><th>Held back or failed</th></tr></thead><tbody id="days-rows"></tbody></table></details>
+        </div>
       </div>
       <div id="err" class="error" role="alert" hidden></div>
       <div id="empty" class="empty" hidden></div>
@@ -138,10 +185,11 @@
       <div class="panel">
         <h2>Around this site</h2>
         <ul>
+          <li><strong>Chat:</strong> your home screen. Web chat is coming soon, so for now you talk to your agent in Telegram.</li>
           <li><strong>Get started:</strong> the first-time setup, step by step.</li>
           <li><strong>Agent:</strong> what your agent is and what it can do.</li>
-          <li><strong>Connections:</strong> which tools it used, how often, and what it worked with.</li>
-          <li><strong>Logs:</strong> every action, when it happened and how it went.</li>
+          <li><strong>Tools:</strong> the apps your agent can use. Open one to see what it did and how to connect or disconnect it.</li>
+          <li><strong>Logs:</strong> charts of what your agent handled, plus every action, when it happened and how it went.</li>
         </ul>
         <h2>How your agent is linked to you</h2>
         <p>When you sign up, we review your request. Once you’re approved, <strong>Get started</strong> gives you a personal link made just for your login. Tap it in Telegram, press <strong>Start</strong>, and your agent ties itself to this login. Your agent belongs to one Telegram chat, and this website login is linked to that same chat, so you only ever see your own agent’s activity. Nobody else can open your chat or your logs.</p>
