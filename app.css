@@ -290,3 +290,25 @@ textarea{resize:vertical;font-family:inherit}
 
 .msg-link,.msg-file{color:inherit;text-decoration:underline;text-underline-offset:2px;word-break:break-all}
 .msg-file{font-weight:600}
+
+/* saved chats */
+.chatlist{display:flex;flex-direction:column;gap:1px;max-height:34vh;overflow-y:auto;margin:0 0 10px}
+.chatitem{display:flex;align-items:center;border-radius:8px}
+.chatitem:hover,.chatitem.on{background:var(--hover)}
+.chatitem.on{box-shadow:inset 2px 0 0 var(--muted)}
+.side .chatopen{flex:1;min-width:0;padding:7px 10px;font-size:.88rem;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:none}
+.side .chatitem.on .chatopen{color:var(--fg)}
+.side .chatdel{flex:none;width:28px;padding:4px 0;text-align:center;font-size:1.05rem;opacity:0}
+.chatitem:hover .chatdel,.chatdel:focus-visible{opacity:1}
+@media (max-width:760px){.chatlist{display:none}}
+/* code in replies */
+.msg:has(.codeblock){width:min(100%,720px)}
+.msg code.msg-code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em;background:var(--hover);border-radius:5px;padding:1px 5px}
+.codeblock{white-space:normal;margin:8px 0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg)}
+.codehead{display:flex;align-items:center;justify-content:space-between;padding:6px 8px 6px 12px;background:var(--hover);border-bottom:1px solid var(--line);font-size:.78rem;color:var(--muted)}
+.codecopy{background:none;border:1px solid var(--line);border-radius:6px;color:var(--fg);font:inherit;font-size:.78rem;padding:3px 9px;cursor:pointer}
+.codecopy:hover{border-color:var(--strong)}
+.codeblock pre{margin:0;padding:12px 14px;overflow-x:auto;white-space:pre;tab-size:4}
+.codeblock pre code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.85rem;line-height:1.55;color:var(--fg)}
+.msg>.codeblock:first-child{margin-top:0}.msg>.codeblock:last-child{margin-bottom:0}
+.codeblock pre code{border:0;background:none;padding:0;border-radius:0;display:block}

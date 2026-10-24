@@ -616,6 +616,52 @@
     // ---- chat: messages drop to the bottom like ChatGPT, with typing dots while the agent answers
     const chat = {
       busy: false, api: cfg.chatApi,
+      key: null, list: [], currentId: null, fresh: true, needHistory: false,
+      // Saved chats live only in THIS browser (never on a server), so the business's conversations stay private.
+      loadList(userId) {
+        this.key = `coop-chats-${userId}`;
+        try { const a = JSON.parse(localStorage.getItem(this.key) || '[]'); this.list = Array.isArray(a) ? a.filter((c) => c && typeof c.id === 'string' && Array.isArray(c.msgs)) : []; } catch { this.list = []; }
+        this.renderList();
+      },
+      saveList() {
+        this.list.sort((x, y) => y.at - x.at);
+        this.list = this.list.slice(0, 40);
+        try { localStorage.setItem(this.key, JSON.stringify(this.list)); } catch { /* storage full or blocked: chats just aren't kept */ }
+      },
+      renderList() {
+        const box = $('chat-list');
+        if (!box) return;
+        box.replaceChildren();
+        for (const c of this.list) {
+          const row = el('div', `chatitem${c.id === this.currentId ? ' on' : ''}`);
+          const open = el('button', 'chatopen', c.title); open.type = 'button'; open.title = c.title;
+          open.addEventListener('click', () => this.open(c.id));
+          const del = el('button', 'chatdel', '×'); del.type = 'button'; del.setAttribute('aria-label', `Delete chat: ${c.title}`);
+          del.addEventListener('click', () => this.del(c.id));
+          row.appendChild(open); row.appendChild(del); box.appendChild(row);
+        }
+      },
+      current() { return this.list.find((c) => c.id === this.currentId) || null; },
+      record(cls, text) {
+        const c = this.current(); if (!c) return;
+        c.msgs.push({ cls, text: String(text).slice(0, 4000) });
+        c.msgs = c.msgs.slice(-200); c.at = Date.now();
+        this.saveList(); this.renderList();
+      },
+      open(id) {
+        if (this.busy) return;
+        const c = this.list.find((x) => x.id === id); if (!c) return;
+        $('chat-thread').replaceChildren();
+        for (const m of c.msgs) this.add(m.cls, m.text);
+        this.currentId = id; this.fresh = true; this.needHistory = true;
+        this.renderList(); show('chat');
+      },
+      del(id) {
+        if (this.busy) return;
+        this.list = this.list.filter((c) => c.id !== id);
+        this.saveList();
+        if (id === this.currentId) this.reset(); else this.renderList();
+      },
       init() {
         const input = $('chat-input'), send = $('chat-send');
         if (!this.api) {
@@ -628,19 +674,55 @@
         send.addEventListener('click', () => this.send());
       },
       grow() { const i = $('chat-input'); i.style.height = 'auto'; i.style.height = `${Math.min(i.scrollHeight, 180)}px`; },
-      // Agent replies: plain text, except https links become real links (never anything else, never HTML).
-      fill(m, text) {
-        const parts = String(text).split(/(https:\/\/[^\s<>"]+)/);
+      // Agent replies: plain text, except https links become real links and ``` fences become code blocks (never HTML).
+      links(parent, str) {
+        const parts = String(str).split(/(https:\/\/[^\s<>"]+)/);
         for (const part of parts) {
           const mm = /^(https:\/\/[^\s<>"]+?)([.,;:!?)\]]*)$/.exec(part);
           let ok = false;
           if (mm) { try { ok = new URL(mm[1]).protocol === 'https:'; } catch { ok = false; } }
-          if (!ok) { if (part) m.appendChild(document.createTextNode(part)); continue; }
+          if (!ok) { if (part) parent.appendChild(document.createTextNode(part)); continue; }
           const a = el('a', 'msg-link', mm[1]);
           a.href = mm[1]; a.target = '_blank'; a.rel = 'noopener noreferrer';
-          m.appendChild(a);
-          if (mm[2]) m.appendChild(document.createTextNode(mm[2]));
+          parent.appendChild(a);
+          if (mm[2]) parent.appendChild(document.createTextNode(mm[2]));
         }
+      },
+      inline(parent, str) {
+        for (const piece of String(str).split(/(`[^`\n]+`)/)) {
+          if (/^`[^`\n]+`$/.test(piece)) parent.appendChild(el('code', 'msg-code', piece.slice(1, -1)));
+          else this.links(parent, piece);
+        }
+      },
+      codeBlock(parent, lang, code) {
+        const box = el('div', 'codeblock');
+        const head = el('div', 'codehead');
+        head.appendChild(el('span', 'codelang', lang || 'code'));
+        const copy = el('button', 'codecopy', 'Copy');
+        copy.type = 'button';
+        copy.addEventListener('click', async () => {
+          try { await navigator.clipboard.writeText(code); copy.textContent = 'Copied'; }
+          catch { copy.textContent = 'Press Ctrl+C'; const r = document.createRange(); r.selectNodeContents(pre); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); }
+          setTimeout(() => { copy.textContent = 'Copy'; }, 1600);
+        });
+        head.appendChild(copy);
+        const pre = el('pre'); pre.appendChild(el('code', null, code));
+        box.appendChild(head); box.appendChild(pre);
+        parent.appendChild(box);
+      },
+      fill(m, text) {
+        const s = String(text);
+        const re = /```([\w+#.-]{0,20})[ \t]*\n?([\s\S]*?)(?:```|$)/g;
+        let last = 0, mm;
+        while ((mm = re.exec(s)) !== null) {
+          const before = s.slice(last, mm.index).replace(/\n+$/, '');
+          if (before) this.inline(m, before);
+          this.codeBlock(m, mm[1], mm[2].replace(/\n+$/, ''));
+          last = re.lastIndex;
+          if (re.lastIndex >= s.length) break;
+        }
+        const rest = s.slice(last).replace(/^\n+/, '');
+        if (rest) this.inline(m, rest);
       },
       // A file the agent made: offered as a download built in the browser from what the bot sent.
       file(f) {
@@ -675,6 +757,7 @@
         if (this.busy) return;
         $('chat-thread').replaceChildren(); $('chat-thread').hidden = true; $('chat-hero').hidden = false;
         $('view-chat').classList.remove('started');
+        this.currentId = null; this.fresh = true; this.needHistory = false; this.renderList();
       },
       async send() {
         const input = $('chat-input');
@@ -682,7 +765,14 @@
         if (this.busy || !text) return;
         input.value = ''; this.grow();
         this.busy = true; $('chat-send').disabled = true;
-        this.add('me', text);
+        if (!this.currentId) { // the first message starts a saved chat, titled with what was said
+          const title = text.replace(/\s+/g, ' ').slice(0, 40) + (text.replace(/\s+/g, ' ').length > 40 ? '…' : '');
+          this.currentId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+          this.list.unshift({ id: this.currentId, title, at: Date.now(), msgs: [] });
+        }
+        const priorTurns = (this.current()?.msgs || []).filter((m) => m.cls === 'me' || m.cls === 'agent').slice(-8).map((m) => ({ role: m.cls === 'me' ? 'user' : 'assistant', text: m.text.slice(0, 300) }));
+        const fresh = this.fresh, needHistory = this.needHistory;
+        this.add('me', text); this.record('me', text);
         const dots = this.dots();
         try {
           const { data: s } = await db.auth.getSession();
@@ -695,7 +785,7 @@
             res = await fetch(this.api, {
               method: 'POST', signal: ctl.signal,
               headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'ngrok-skip-browser-warning': '1' },
-              body: JSON.stringify({ message: text }),
+              body: JSON.stringify(fresh ? { message: text, fresh: true, ...(needHistory && priorTurns.length ? { history: priorTurns } : {}) } : { message: text }),
             });
           } finally { clearTimeout(timer); }
           if (res.status === 401) { dots.remove(); return sessionExpired(); }
@@ -704,7 +794,8 @@
           const replies = Array.isArray(out.replies) ? out.replies.map(String).filter(Boolean).slice(0, 10) : [];
           dots.remove();
           if (!replies.length && !(Array.isArray(out.files) && out.files.length)) this.add('agent', 'Done.');
-          for (const r of replies) this.add('agent', r.slice(0, 4000));
+          this.fresh = false; this.needHistory = false;
+          for (const r of replies) { this.add('agent', r.slice(0, 4000)); this.record('agent', r.slice(0, 4000)); }
           for (const f of (Array.isArray(out.files) ? out.files.slice(0, 3) : [])) if (f && typeof f === 'object') this.file(f);
         } catch {
           dots.remove();
@@ -715,6 +806,7 @@
       },
     };
     chat.init();
+    chat.loadList(data.session.user.id);
 
     // ---- log charts: what the agent handled, and activity by day (counts only, built from metadata)
     const KINDS = [['chat', 'Chats', 's1'], ['action', 'Actions', 's2'], ['command', 'Commands', 's3'], ['blocked', 'Held back', 's4'], ['error', 'Errors', 's5']];
