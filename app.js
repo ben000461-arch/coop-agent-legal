@@ -54,39 +54,65 @@
 
   // ---- login and sign-up ------------------------------------------------------------------
   async function bootLogin(db) {
-    const { data } = await db.auth.getSession();
-    if (data.session) return location.replace('dashboard.html');
-
     const form = $('form');
     const err = $('err');
     const go = $('go');
+    const note = $('note');
     const fail = (m) => { err.textContent = m; err.hidden = false; };
+    const say = (m, warn) => { note.textContent = m; note.classList.toggle('warn', Boolean(warn)); note.hidden = false; };
     let mode = 'login';
+
+    // A "show password" button for a group of fields: only changes what is displayed on this screen.
+    function showToggle(btnId, ids, on, off) {
+      const btn = $(btnId);
+      btn.addEventListener('click', () => {
+        const show = btn.getAttribute('aria-pressed') !== 'true';
+        btn.setAttribute('aria-pressed', String(show));
+        btn.textContent = show ? off : on;
+        for (const id of ids) $(id).type = show ? 'text' : 'password';
+      });
+    }
+    showToggle('show-pw', ['password', 'password2'], 'Show password', 'Hide password');
+    showToggle('show-pw2', ['pw-a', 'pw-b'], 'Show passwords', 'Hide passwords');
+
+    // Coming back from an emailed link. The address carries tokens; remove them from the address bar at once.
+    const h = location.hash;
+    const hp = new URLSearchParams(h.replace(/^#/, ''));
+    const fromEmail = /access_token=|type=signup|type=recovery|error_description=|error_code=/.test(h);
+    if (fromEmail) { try { history.replaceState(null, '', location.pathname); } catch { /* ignore */ } }
+
+    // ---- choosing a new password (the link from "Forgot your password?") ----
+    if (hp.get('type') === 'recovery' && hp.get('access_token') && hp.get('refresh_token')) {
+      return bootReset(db, hp.get('access_token'), hp.get('refresh_token'));
+    }
+
+    const { data } = await db.auth.getSession();
+    if (data.session) return location.replace('dashboard.html');
 
     function setMode(m) {
       mode = m;
       const su = m === 'signup';
+      const fg = m === 'forgot';
       $('signup-fields').hidden = !su;
-      $('sub').textContent = su ? 'Create an account. We review every request before an agent is set up.' : 'Log in to see what your agent has been doing.';
-      go.textContent = su ? 'Create account' : 'Log in';
+      $('pw-wrap').hidden = fg;
+      $('forgot-wrap').hidden = m !== 'login';
+      $('sub').textContent = su ? 'Create an account. We review every request before an agent is set up.'
+        : fg ? 'Enter your email and we’ll send you a link to choose a new password.'
+        : 'Log in to see what your agent has been doing.';
+      go.textContent = su ? 'Create account' : fg ? 'Send reset link' : 'Log in';
       $('password').autocomplete = su ? 'new-password' : 'current-password';
-      $('toggle-text').textContent = su ? 'Already have an account?' : 'New here?';
-      $('toggle').textContent = su ? 'Log in' : 'Create an account';
+      $('toggle-text').textContent = m === 'login' ? 'New here?' : su ? 'Already have an account?' : 'Remembered it?';
+      $('toggle').textContent = m === 'login' ? 'Create an account' : 'Log in';
       err.hidden = true;
     }
     $('toggle').addEventListener('click', () => setMode(mode === 'login' ? 'signup' : 'login'));
+    $('forgot').addEventListener('click', () => { note.hidden = true; setMode('forgot'); });
     $('back-login').addEventListener('click', () => { $('done').hidden = true; form.hidden = false; $('toggle').parentElement.hidden = false; setMode('login'); });
-    if (location.hash === '#signup') setMode('signup');
+    setMode(location.hash === '#signup' ? 'signup' : 'login');
 
-    // Coming back from the confirmation email: the address carries tokens we don't use. Remove them from
-    // the address bar and say what happened. (Nothing is stored; the person logs in normally.)
-    const h = location.hash;
-    if (/access_token=|type=signup|error_description=|error_code=/.test(h)) {
-      try { history.replaceState(null, '', location.pathname); } catch { /* ignore */ }
-      const note = $('note');
-      if (/error_description=|error_code=/.test(h)) note.textContent = 'That confirmation link didn’t work, or it has expired. Try creating the account again, or log in if you already have one.';
-      else note.textContent = 'Your email is confirmed. Log in to continue.';
-      note.hidden = false;
+    if (fromEmail) {
+      if (/error_description=|error_code=/.test(h)) say('That email link was already used or has expired. If you already confirmed your email, just log in. If you forgot your password, use “Forgot your password?” below.', true);
+      else say('Your email is confirmed. Log in to continue.');
     }
 
     async function doLogin(email, password) {
@@ -100,8 +126,27 @@
       go.disabled = false;
       go.textContent = 'Log in';
       if (error.status === 429) fail('Too many tries. Wait a minute and try again.');
-      else if (error.status === 400 || error.status === 401 || error.status === 422) fail("That email and password didn't match.");
+      else if (error.status === 400 || error.status === 401 || error.status === 422) fail("That email and password didn't match. Use “Show password” to check what you typed, or “Forgot your password?” below.");
       else fail("Couldn't reach the server. Check your connection and try again.");
+    }
+
+    async function doForgot(email) {
+      go.disabled = true;
+      go.textContent = 'Sending…';
+      let error;
+      try {
+        ({ error } = await db.auth.resetPasswordForEmail(email, { redirectTo: new URL('login.html', location.href).href }));
+      } catch {
+        error = { status: 0 };
+      }
+      go.disabled = false;
+      go.textContent = 'Send reset link';
+      if (error && error.status === 429) return fail('Too many requests. Wait a few minutes and try again.');
+      if (error && (error.status === 0 || error.status >= 500)) return fail("Couldn't reach the server. Check your connection and try again.");
+      // The same answer whether or not the email has an account, so this page can't be used to find out who does.
+      err.hidden = true;
+      say('If that email has an account, we’ve sent it a link to choose a new password. Check your inbox and spam folder. The link works for a short time.');
+      return undefined;
     }
 
     async function doSignup(email, password) {
@@ -110,6 +155,7 @@
       const business_name = $('business_name').value.trim();
       const notes = $('notes').value.trim();
       if (password.length < 8) return fail('Use a password with at least 8 characters.');
+      if (password !== $('password2').value) return fail('The two passwords don’t match. Type the same one in both boxes.');
       if (!business_name) return fail('Enter your business name.');
       if (!business_type) return fail('Tell us what kind of business it is.');
       if (!['tasks', 'dev', 'both', 'other'].includes(use_case)) return fail('Choose what you will use your agent for.');
@@ -130,6 +176,7 @@
         if (d && d.session) return location.replace('dashboard.html'); // the project doesn't require email confirmation
         $('done-email').textContent = email;
         $('password').value = '';
+        $('password2').value = '';
         form.hidden = true;
         $('toggle').parentElement.hidden = true;
         $('done').hidden = false;
@@ -147,6 +194,10 @@
       err.hidden = true;
       const email = $('email').value.trim();
       const password = $('password').value;
+      if (mode === 'forgot') {
+        if (!email) return fail('Enter your email address.');
+        return doForgot(email);
+      }
       if (!email || !password) return fail('Enter your email and password.');
       if (mode === 'login') {
         go.disabled = true;
@@ -155,6 +206,60 @@
       }
       return doSignup(email, password);
     });
+    return undefined;
+  }
+
+  // The page you land on from the reset email: sign in with the one-time link, set the new password, sign out.
+  async function bootReset(db, accessToken, refreshToken) {
+    $('form').hidden = true;
+    $('toggle').parentElement.hidden = true;
+    $('sub').textContent = 'Choose a new password for your account.';
+    const rerr = $('reset-err');
+    const rfail = (m) => { rerr.textContent = m; rerr.hidden = false; };
+    const finish = () => location.replace('login.html');
+    $('reset-login').addEventListener('click', finish);
+
+    let ready = false;
+    try {
+      const { error } = await db.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+      ready = !error;
+    } catch { ready = false; }
+    if (!ready) {
+      $('sub').textContent = '';
+      const n = $('note');
+      n.textContent = 'That reset link didn’t work, or it has expired. Go back to log in and choose “Forgot your password?” to get a new one.';
+      n.classList.add('warn'); n.hidden = false;
+      $('reset-done').hidden = false;
+      $('reset-done').querySelector('h2').textContent = 'Link expired';
+      $('reset-done').querySelector('p').hidden = true;
+      return undefined;
+    }
+    $('reset').hidden = false;
+    $('sub').textContent = '';
+    $('reset-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      rerr.hidden = true;
+      const a = $('pw-a').value; const b = $('pw-b').value;
+      if (a.length < 8) return rfail('Use a password with at least 8 characters.');
+      if (a !== b) return rfail('The two passwords don’t match. Type the same one in both boxes.');
+      const btn = $('reset-go');
+      btn.disabled = true; btn.textContent = 'Saving…';
+      let error;
+      try { ({ error } = await db.auth.updateUser({ password: a })); } catch { error = { status: 0 }; }
+      btn.disabled = false; btn.textContent = 'Save new password';
+      if (error) {
+        if (error.code === 'same_password') return rfail('Choose a password you haven’t used before on this account.');
+        if (error.code === 'weak_password') return rfail('That password is too easy to guess. Try a longer one.');
+        if (error.status === 0 || error.status >= 500) return rfail("Couldn't reach the server. Check your connection and try again.");
+        return rfail('That link may have expired. Go back to log in and choose “Forgot your password?” again.');
+      }
+      try { await db.auth.signOut(); } catch { /* the password is already changed */ }
+      $('reset').hidden = true;
+      $('sub').textContent = '';
+      $('reset-done').hidden = false;
+      return undefined;
+    });
+    return undefined;
   }
 
   // ---- dashboard --------------------------------------------------------------------------

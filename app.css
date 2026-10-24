@@ -162,6 +162,9 @@ button.conn:hover{border-color:var(--strong)}
 /* sign-up and status notices */
 textarea{resize:vertical;font-family:inherit}
 .ok-note{background:var(--ok-bg);color:var(--ok-fg);border-radius:8px;padding:10px 12px;font-size:.9rem}
+.ok-note.warn{background:var(--warn-bg);color:var(--warn-fg)}
+.pwtools{margin:6px 0 0}
+#forgot-wrap{margin-top:14px}
 .notice{border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:12px 16px;margin:16px 0}
 .notice.warn{background:var(--warn-bg);color:var(--warn-fg);border-color:transparent}
 .notice.bad{background:var(--bad-bg);color:var(--bad-fg);border-color:transparent}

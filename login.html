@@ -17,10 +17,15 @@
     <form id="form" novalidate>
       <label for="email">Email</label>
       <input id="email" type="email" autocomplete="username" autocapitalize="none" spellcheck="false">
-      <label for="password">Password</label>
-      <input id="password" type="password" autocomplete="current-password">
+      <div id="pw-wrap">
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password">
+        <p class="muted small tight pwtools"><button id="show-pw" class="linklike" type="button" aria-pressed="false">Show password</button></p>
+      </div>
       <div id="signup-fields" hidden>
-        <p class="muted small">At least 8 characters.</p>
+        <label for="password2">Confirm password</label>
+        <input id="password2" type="password" autocomplete="new-password">
+        <p class="muted small">At least 8 characters. Type it the same both times.</p>
         <label for="business_name">Business name</label>
         <input id="business_name" type="text" maxlength="60" autocomplete="organization">
         <label for="business_type">What kind of business is it?</label>
@@ -39,7 +44,26 @@
       </div>
       <div id="err" class="error" role="alert" hidden></div>
       <button id="go" class="btn block" type="submit">Log in</button>
+      <p id="forgot-wrap" class="muted small switch"><button id="forgot" class="linklike" type="button">Forgot your password?</button></p>
     </form>
+    <div id="reset" hidden>
+      <h2>Choose a new password</h2>
+      <form id="reset-form" novalidate>
+        <label for="pw-a">New password</label>
+        <input id="pw-a" type="password" autocomplete="new-password">
+        <label for="pw-b">Confirm new password</label>
+        <input id="pw-b" type="password" autocomplete="new-password">
+        <p class="muted small tight pwtools"><button id="show-pw2" class="linklike" type="button" aria-pressed="false">Show passwords</button></p>
+        <p class="muted small">At least 8 characters.</p>
+        <div id="reset-err" class="error" role="alert" hidden></div>
+        <button id="reset-go" class="btn block" type="submit">Save new password</button>
+      </form>
+    </div>
+    <div id="reset-done" hidden>
+      <h2>Password updated</h2>
+      <p>You can log in with your new password now.</p>
+      <button id="reset-login" class="btn block" type="button">Go to log in</button>
+    </div>
     <div id="done" hidden>
       <h2>Check your email</h2>
       <p>If <strong id="done-email"></strong> is new here, we’ve sent it a confirmation link. Click the link, then come back and log in.</p>
