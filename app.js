@@ -628,9 +628,37 @@
         send.addEventListener('click', () => this.send());
       },
       grow() { const i = $('chat-input'); i.style.height = 'auto'; i.style.height = `${Math.min(i.scrollHeight, 180)}px`; },
+      // Agent replies: plain text, except https links become real links (never anything else, never HTML).
+      fill(m, text) {
+        const parts = String(text).split(/(https:\/\/[^\s<>"]+)/);
+        for (const part of parts) {
+          const mm = /^(https:\/\/[^\s<>"]+?)([.,;:!?)\]]*)$/.exec(part);
+          let ok = false;
+          if (mm) { try { ok = new URL(mm[1]).protocol === 'https:'; } catch { ok = false; } }
+          if (!ok) { if (part) m.appendChild(document.createTextNode(part)); continue; }
+          const a = el('a', 'msg-link', mm[1]);
+          a.href = mm[1]; a.target = '_blank'; a.rel = 'noopener noreferrer';
+          m.appendChild(a);
+          if (mm[2]) m.appendChild(document.createTextNode(mm[2]));
+        }
+      },
+      // A file the agent made: offered as a download built in the browser from what the bot sent.
+      file(f) {
+        try {
+          const name = String(f.name || 'file').replace(/[^\w.\- ]+/g, '_').slice(0, 100) || 'file';
+          const bin = atob(String(f.data || ''));
+          if (bin.length > 4.5 * 1024 * 1024) return;
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          const a = el('a', 'msg-file', `Download ${name}`);
+          a.href = URL.createObjectURL(new Blob([bytes])); a.download = name;
+          const m = this.add('agent'); m.appendChild(a);
+        } catch { /* a broken file is skipped, the replies still show */ }
+      },
       add(cls, text) {
         $('chat-hero').hidden = true; $('chat-thread').hidden = false; $('view-chat').classList.add('started');
-        const m = el('div', `msg ${cls}`, text);
+        const m = el('div', `msg ${cls}`, cls === 'agent' ? '' : text);
+        if (cls === 'agent' && text) this.fill(m, text);
         $('chat-thread').appendChild(m);
         $('chat-thread').scrollTop = $('chat-thread').scrollHeight;
         return m;
@@ -675,8 +703,9 @@
           const out = await res.json();
           const replies = Array.isArray(out.replies) ? out.replies.map(String).filter(Boolean).slice(0, 10) : [];
           dots.remove();
-          if (!replies.length) this.add('agent', 'Done.');
+          if (!replies.length && !(Array.isArray(out.files) && out.files.length)) this.add('agent', 'Done.');
           for (const r of replies) this.add('agent', r.slice(0, 4000));
+          for (const f of (Array.isArray(out.files) ? out.files.slice(0, 3) : [])) if (f && typeof f === 'object') this.file(f);
         } catch {
           dots.remove();
           this.add('err', 'Couldn’t reach your agent. Check that it’s running, then try again.');

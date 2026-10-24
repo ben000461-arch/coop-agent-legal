@@ -287,3 +287,6 @@ textarea{resize:vertical;font-family:inherit}
 
 .plan-card .tight{margin:8px 0 0}
 .set-row p.tight{margin:0 0 8px}
+
+.msg-link,.msg-file{color:inherit;text-decoration:underline;text-underline-offset:2px;word-break:break-all}
+.msg-file{font-weight:600}
