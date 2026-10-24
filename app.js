@@ -802,7 +802,132 @@
       },
     };
 
-    // ---- usage: requests (chats and actions) this calendar month against the monthly allowance
+    // ---- plan and credits. Read-only: only the bot (using its own key) ever writes plans and credits.
+    // These numbers mirror plans.js on the bot and are placeholders until the pilot sets real ones. Once a month's
+    // credits are granted, the ledger's own grant row is what counts, so a price change never rewrites history.
+    const DAY_MS = 86400000;
+    const PLAN_INFO = {
+      trial: { label: 'Free trial', credits: null }, starter: { label: 'Starter', credits: 1000 }, pro: { label: 'Pro', credits: 3500 },
+      business: { label: 'Business', credits: 9000 }, pilot: { label: 'Pilot', credits: 3500 }, frozen: { label: 'Paused', credits: null },
+    };
+    const TRIAL_DAYS = 30, GRACE_DAYS = 3, DAILY_FRACTION = 0.25, TRIAL_DAILY = { actions: 20, chats: 100 };
+    const CONTACT = 'cooptech126@gmail.com';
+    const ymd = (t) => new Date(t).toISOString().slice(0, 10);
+    const dayText = (d) => new Date(`${String(d).slice(0, 10)}T00:00:00Z`).toLocaleDateString(undefined, { month: 'long', day: 'numeric', timeZone: 'UTC' });
+    const num = (n) => Number(n).toLocaleString('en-US');
+    // The billing cycle is monthly from the anchor's day-of-month (short months clamp), in UTC. Same rule as the bot.
+    function cycleStartOf(anchor, now) {
+      const a0 = new Date(`${String(anchor).slice(0, 10)}T00:00:00Z`);
+      if (Number.isNaN(a0.getTime())) return null;
+      const day = a0.getUTCDate();
+      const pick = (y, m) => new Date(Date.UTC(y, m, Math.min(day, new Date(Date.UTC(y, m + 1, 0)).getUTCDate())));
+      let start = pick(now.getUTCFullYear(), now.getUTCMonth());
+      if (start.getTime() > now.getTime()) start = pick(now.getUTCFullYear(), now.getUTCMonth() - 1);
+      if (start.getTime() < a0.getTime()) start = a0;
+      return ymd(start);
+    }
+    const nextCycleOf = (anchor, cycle) => cycleStartOf(anchor || cycle, new Date(new Date(`${cycle}T00:00:00Z`).getTime() + 32 * DAY_MS));
+    // What this login is allowed to do right now (same rules as the bot's entitlement check).
+    function deriveAccount(row, nowMs) {
+      const key = String(row.plan || '');
+      const info = PLAN_INFO[key];
+      const ends = row.ends_at ? new Date(row.ends_at).getTime() : null;
+      const base = { key, label: info ? info.label : 'Unknown', endsAt: ends ? new Date(ends).toISOString() : null, anchor: row.cycle_anchor ? String(row.cycle_anchor).slice(0, 10) : null };
+      if (key === 'frozen') return { ...base, state: 'frozen', reason: 'manual' };
+      if (!info) return { ...base, state: 'frozen', reason: 'unknown' };
+      if (key === 'trial') {
+        const started = row.created_at ? new Date(row.created_at).getTime() : (ends ? ends - TRIAL_DAYS * DAY_MS : nowMs);
+        const over = ends != null && nowMs >= ends;
+        return { ...base, state: over ? 'frozen' : 'trial', reason: over ? 'trial_ended' : null, daysLeft: ends == null ? null : Math.max(0, Math.ceil((ends - nowMs) / DAY_MS)), day: Math.min(TRIAL_DAYS, Math.max(0, Math.floor((nowMs - started) / DAY_MS)) + 1) };
+      }
+      if (key === 'pilot') { const over = ends != null && nowMs >= ends; return { ...base, state: over ? 'frozen' : 'pilot', reason: over ? 'pilot_ended' : null, metered: true, planCredits: info.credits }; }
+      const lapsed = ends != null && nowMs >= ends + GRACE_DAYS * DAY_MS;
+      return { ...base, state: lapsed ? 'frozen' : 'active', reason: lapsed ? 'lapsed' : null, metered: true, planCredits: info.credits };
+    }
+    const account = {
+      info: null, at: 0, loading: null,
+      async load(force) {
+        if (!force && this.at && Date.now() - this.at < 30000) return this.info;
+        if (this.loading) return this.loading;
+        this.loading = (async () => {
+          try {
+            const { data: rows, error } = await db.from('tenant_plans').select('plan,ends_at,cycle_anchor,created_at').limit(1);
+            if (error) { if (isAuthError(error)) { sessionExpired(); return this.info; } throw error; }
+            const row = rows && rows[0];
+            if (!row) { this.info = { state: 'none' }; }
+            else {
+              const info = deriveAccount(row, Date.now());
+              if (info.metered) {
+                info.cycle = cycleStartOf(info.anchor || row.created_at, new Date());
+                info.reset = info.cycle ? nextCycleOf(info.anchor, info.cycle) : null;
+                try {
+                  const { data: led, error: lerr } = await db.from('credit_ledger').select('ts,delta,reason').eq('cycle', info.cycle).limit(5000);
+                  if (lerr) { if (isAuthError(lerr)) { sessionExpired(); return this.info; } throw lerr; }
+                  const midnight = new Date(`${ymd(Date.now())}T00:00:00Z`).getTime();
+                  let left = 0, total = 0, today = 0, granted = false;
+                  for (const r of led || []) {
+                    const d = Number(r.delta) || 0; left += d;
+                    if (r.reason === 'spend') { if (new Date(r.ts).getTime() >= midnight) today += -d; }
+                    else if (r.reason === 'refund') { if (new Date(r.ts).getTime() >= midnight) today -= d; }
+                    else { total += d; if (r.reason === 'grant') granted = true; }
+                  }
+                  if (!granted) { total += info.planCredits; left += info.planCredits; } // the grant is written with the first message of the cycle
+                  info.credits = { total, left, used: total - left, today: Math.max(0, today), daily: Math.floor(info.planCredits * DAILY_FRACTION) };
+                } catch { info.credits = null; info.creditsFailed = true; }
+              }
+              this.info = info;
+            }
+          } catch { this.info = null; } // couldn't read it: the page quietly keeps its simpler view
+          this.at = Date.now();
+          return this.info;
+        })();
+        try { return await this.loading; } finally { this.loading = null; }
+      },
+      pausedText(a) {
+        const when = a.endsAt ? ` on ${dayText(a.endsAt)}` : '';
+        if (a.reason === 'trial_ended') return `Your free trial ended${when}, so your agent is paused. It can’t chat or do work until you choose a plan. Your data is safe. Email ${CONTACT} to switch it back on.`;
+        if (a.reason === 'pilot_ended') return `Your pilot ended${when}, so your agent is paused. Your data is safe. Email ${CONTACT} to switch it back on.`;
+        if (a.reason === 'lapsed') return `Your plan’s payment period ended${when}, so your agent is paused. Your data is safe. Email ${CONTACT} to switch it back on.`;
+        return `Your agent is paused right now. Your data is safe. Email ${CONTACT} and we’ll switch it back on.`;
+      },
+      // The strip at the top of every page: paused, or a trial that is about to end.
+      banner() {
+        const a = this.info; const b = $('paused-banner');
+        let text = '', kind = '';
+        if (a && a.state === 'frozen') { text = this.pausedText(a); kind = 'bad'; }
+        else if (a && a.state === 'trial' && a.daysLeft != null && a.daysLeft <= 5) {
+          text = `Your free trial ends ${a.daysLeft <= 0 ? 'today' : a.daysLeft === 1 ? 'tomorrow' : `in ${a.daysLeft} days`} (${dayText(a.endsAt)}). After that your agent pauses until you choose a plan. Email ${CONTACT} to keep it running.`; kind = 'warn';
+        }
+        b.textContent = text; b.className = `notice${kind ? ` ${kind}` : ''}`; b.hidden = !text;
+        if (a && a.state === 'frozen' && chat.api) { // nothing to send to a paused agent
+          const input = $('chat-input'); input.disabled = true; $('chat-send').disabled = true; input.placeholder = 'Your agent is paused. See the notice at the top of the page.';
+        }
+      },
+    };
+
+    // The plan card in Settings. Left as the simple built-in text when the plan can't be read.
+    function renderPlanCard() {
+      const a = account.info; const card = $('plan-card');
+      if (!card || !a) return;
+      card.replaceChildren();
+      if (a.state === 'none') {
+        card.appendChild(el('strong', null, 'Free trial'));
+        card.appendChild(el('p', 'muted small tight', 'Your 30-day free trial starts with your first message to your agent. Nothing is charged.'));
+        return;
+      }
+      card.appendChild(el('strong', null, `${a.label} `));
+      const badge = { trial: ['b-asked', 'Trial'], active: ['b-done', 'Active'], pilot: ['b-done', 'Pilot'], frozen: ['b-failed', 'Paused'] }[a.state];
+      if (badge) card.appendChild(el('span', `badge ${badge[0]}`, badge[1]));
+      const line = (t) => card.appendChild(el('p', 'muted small tight', t));
+      if (a.state === 'frozen') line(account.pausedText(a));
+      else if (a.state === 'trial') line(`${a.daysLeft == null ? 'No end date set.' : `${a.daysLeft} day${a.daysLeft === 1 ? '' : 's'} left (ends ${dayText(a.endsAt)}).`} Full use of the larger model, with daily limits of ${TRIAL_DAILY.actions} actions and ${TRIAL_DAILY.chats} chats. Nothing is charged.`);
+      else if (a.state === 'pilot') line(`You’re in the co|op pilot. Nothing is charged.${a.endsAt ? ` Your pilot runs until ${dayText(a.endsAt)}.` : ' There’s no end date set.'} We’ll email you well before any paid plan starts.`);
+      else line(a.endsAt ? `Paid through ${dayText(a.endsAt)}.` : 'Active.');
+      if (a.credits) line(`${num(Math.max(0, a.credits.left))} of ${num(a.credits.total)} credits left this month. They reset on ${dayText(a.reset)}.`);
+      else if (a.creditsFailed) line('We couldn’t load your credits just now. Refresh in a moment.');
+    }
+
+    // ---- usage: draws one bar. Credits when the plan has them; days for a trial; otherwise a request count.
     function usageNow() {
       const start = new Date(); start.setDate(1); start.setHours(0, 0, 0, 0);
       const rows = charts.rows;
@@ -812,33 +937,65 @@
       const partial = rows.length >= 2000 && oldest && oldest >= start; // more rows than we load, so the count may be low
       return { used, partial };
     }
-    function renderUsage(box) {
-      if (!box) return;
-      const limit = cfg.usageLimit, { used, partial } = usageNow();
-      const pct = Math.min(100, Math.round((used / limit) * 100));
-      const level = used >= limit ? 'red' : used / limit >= 0.8 ? 'yellow' : used / limit >= 0.5 ? 'green' : 'blue';
-      const word = { blue: 'Plenty left', green: 'On track', yellow: 'Running low', red: 'Allowance used up' }[level];
+    function drawUsage(box, { title, strong, rest, ratio, now, max, noteText, extra, wordFor }) {
+      const level = ratio >= 1 ? 'red' : ratio >= 0.8 ? 'yellow' : ratio >= 0.5 ? 'green' : 'blue';
+      const word = (wordFor || { blue: 'Plenty left', green: 'On track', yellow: 'Running low', red: 'Allowance used up' })[level];
       box.replaceChildren();
       box.className = box.className.replace(/\bu-(blue|green|yellow|red)\b/g, '').trim() + ` u-${level}`;
-      box.appendChild(el('h2', null, 'Usage this month'));
+      box.appendChild(el('h2', null, title));
       const head = el('div', 'usage-head');
       const big = el('span');
-      big.appendChild(el('strong', null, `${partial ? 'at least ' : ''}${used}`));
-      big.appendChild(document.createTextNode(` of ${limit} requests · ${Math.round((used / limit) * 100)}%`));
+      big.appendChild(el('strong', null, strong));
+      big.appendChild(document.createTextNode(rest));
       head.appendChild(big);
       head.appendChild(el('span', 'u-pill', word));
       box.appendChild(head);
       const track = el('div', 'u-track');
-      track.setAttribute('role', 'progressbar'); track.setAttribute('aria-valuemin', '0'); track.setAttribute('aria-valuemax', String(limit));
-      track.setAttribute('aria-valuenow', String(Math.min(used, limit))); track.setAttribute('aria-label', `Usage this month: ${word}`);
-      const fill = el('div', 'u-fill'); fill.style.width = `${pct}%`;
+      track.setAttribute('role', 'progressbar'); track.setAttribute('aria-valuemin', '0'); track.setAttribute('aria-valuemax', String(max));
+      track.setAttribute('aria-valuenow', String(Math.min(now, max))); track.setAttribute('aria-label', `${title}: ${word}`);
+      const fill = el('div', 'u-fill'); fill.style.width = `${Math.min(100, Math.round(ratio * 100))}%`;
       track.appendChild(fill); box.appendChild(track);
       const key = el('ul', 'u-key');
       for (const [c, t] of [['var(--u-blue)', 'Under half'], ['var(--u-green)', '50% to 79%'], ['var(--u-yellow)', '80% or more, running low'], ['var(--u-red)', 'Used up']]) {
         const li = el('li'); const i = el('i'); i.style.background = c; li.appendChild(i); li.appendChild(document.createTextNode(t)); key.appendChild(li);
       }
       box.appendChild(key);
-      box.appendChild(el('p', 'muted small', `Counts your chats and actions since the 1st. The ${limit}-request allowance is a pilot placeholder and nothing is switched off if you pass it.`));
+      for (const t of [noteText, extra]) if (t) box.appendChild(el('p', 'muted small', t));
+    }
+    function renderUsage(box) {
+      if (!box) return;
+      const a = account.info;
+      if (a && a.state === 'frozen') {
+        box.replaceChildren(el('h2', null, 'Usage this month'), el('p', 'muted small', 'Your agent is paused, so nothing is being used. See the notice at the top of the page.'));
+        return;
+      }
+      if (a && a.metered && a.credits) {
+        const c = a.credits; const ratio = c.total > 0 ? c.used / c.total : 0;
+        drawUsage(box, {
+          title: 'Credits this month', strong: num(Math.max(0, c.used)), rest: ` of ${num(c.total)} credits · ${Math.round(ratio * 100)}%`, ratio, now: c.used, max: c.total || 1,
+          noteText: `Credits reset on ${dayText(a.reset)} and don’t carry over. An action costs 5 credits, chat on the larger model costs 2, and chat on the smaller model is free.`,
+          extra: `Today: ${num(c.today)} of ${num(c.daily)} (a daily limit keeps the month’s credits from running out in one day). Need more? Email ${CONTACT}.`,
+          wordFor: { blue: 'Plenty left', green: 'On track', yellow: 'Running low', red: 'Credits used up' },
+        });
+        return;
+      }
+      if (a && a.state === 'trial') {
+        drawUsage(box, {
+          title: 'Free trial', strong: `Day ${a.day}`, rest: ` of ${TRIAL_DAYS}`, ratio: a.day / TRIAL_DAYS, now: a.day, max: TRIAL_DAYS,
+          noteText: `Full use of the larger model during the trial, with daily limits of ${TRIAL_DAILY.actions} actions and ${TRIAL_DAILY.chats} chats. After day ${TRIAL_DAYS} your agent pauses until you choose a plan.`,
+          wordFor: { blue: 'Just started', green: 'Halfway', yellow: 'Ending soon', red: 'Trial over' },
+        });
+        return;
+      }
+      if (a && a.metered && a.creditsFailed) {
+        box.replaceChildren(el('h2', null, 'Credits this month'), el('p', 'muted small', 'We couldn’t load your credits just now. Refresh in a moment.'));
+        return;
+      }
+      const limit = cfg.usageLimit, { used, partial } = usageNow();
+      drawUsage(box, {
+        title: 'Usage this month', strong: `${partial ? 'at least ' : ''}${used}`, rest: ` of ${limit} requests · ${Math.round((used / limit) * 100)}%`, ratio: used / limit, now: used, max: limit,
+        noteText: `Counts your chats and actions since the 1st. The ${limit}-request allowance is a pilot placeholder and nothing is switched off if you pass it.`,
+      });
     }
 
     // ---- settings: details, appearance, plan and billing, usage, password
@@ -864,12 +1021,13 @@
         this.pane = p;
         for (const b of document.querySelectorAll('.set-nav [data-set]')) { if (b.dataset.set === p) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current'); }
         for (const x of document.querySelectorAll('.set-pane')) x.hidden = x.id !== `set-${p}`;
+        if (p === 'plan') account.load(true).then(() => renderPlanCard());
         if (p === 'usage') this.usage();
       },
       async usage() {
         const box = $('usage-set');
         if (linked !== true) { box.replaceChildren(el('p', 'muted small', 'Usage shows up once your agent is linked. Open Get started to link it.')); return; }
-        await charts.load();
+        await Promise.all([charts.load(), account.load(true)]);
         renderUsage(box);
       },
       open() { this.fillProfile(); this.themeUi(); this.go(this.pane); if (!this.wired) this.wire(); },
@@ -1076,6 +1234,7 @@
       } else {
         await refreshSignup();
       }
+      if (linked) { await account.load(true); account.banner(); renderPlanCard(); }
       if (!view) view = linked && hasLogs ? (logsFailed ? 'logs' : 'chat') : 'start'; // an active agent lands on Chat (Logs if they can't load, so the message shows); new or unlinked accounts start at Get started
       renderLinkState();
     } catch (e) {

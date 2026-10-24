@@ -23,6 +23,7 @@
     <button type="button" data-view="settings">Settings</button>
   </nav>
   <main class="main">
+    <div id="paused-banner" class="notice" role="status" hidden></div>
     <section id="unlinked" class="panel" hidden>
       <h2>Your login isn’t linked to an agent yet</h2>
       <p>Open <strong>Get started</strong> to finish setting up and connect your agent in Telegram.</p>
@@ -265,7 +266,7 @@
             <div class="set-head"><div><h2>Plan and billing</h2><p class="muted small">Your plan and where invoices go.</p></div>
               <div class="set-actions"><button id="billing-save" class="btn small" type="button">Save</button></div></div>
             <div class="set-row"><div><b>Current plan</b><span>What you’re on today.</span></div>
-              <div class="plan-card"><strong>Pilot</strong> <span class="badge b-done">Free</span><p class="muted small tight">You’re in the co|op pilot. Nothing is charged. We’ll email you well before any paid plan starts.</p></div></div>
+              <div class="plan-card" id="plan-card"><strong>Pilot</strong> <span class="badge b-done">Free</span><p class="muted small tight">You’re in the co|op pilot. Nothing is charged. We’ll email you well before any paid plan starts.</p></div></div>
             <div class="set-row"><div><b>Payment method</b><span>How you’ll pay once billing starts.</span></div>
               <div><p class="small tight">No card on file. Card payments aren’t switched on yet, so this site never asks for card details.</p><button class="btn ghost small" type="button" disabled>Add payment method</button></div></div>
             <div class="set-row"><div><b>Billing details</b><span>Used on invoices. No card numbers here.</span></div>
