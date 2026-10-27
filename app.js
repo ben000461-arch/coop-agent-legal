@@ -447,7 +447,7 @@
           const key = plusDay(start, i), b = by.get(key) || { allDay: [], timed: [], runs: [] };
           const cell = el('button', `calcell${key.slice(0, 7) !== this.monthKey() ? ' out' : ''}${key === d.today ? ' today' : ''}${key === this.sel ? ' sel' : ''}`);
           cell.type = 'button'; cell.dataset.date = key;
-          const items = [...b.allDay.map((x) => ({ cls: 'ev allday', text: x.text })), ...b.timed.map((x) => ({ cls: 'ev', text: `${x.when.replace(':00', '').replace(' ', '').toLowerCase()} ${x.text}` })), ...b.runs.map((x) => ({ cls: 'ag', text: `${x.name}` }))];
+          const items = [...b.allDay.map((x) => ({ cls: 'ev allday', text: x.text })), ...b.timed.map((x) => ({ cls: 'ev', text: `${x.when.replace(':00', '').replace(' ', '').toLowerCase()} ${x.text}` })), ...b.runs.map((x) => ({ cls: 'ag', text: x.text }))];
           cell.setAttribute('aria-label', `${dayTitle(key, d.today)}: ${b.allDay.length + b.timed.length} events${b.runs.length ? `, ${b.runs.length} agent runs` : ''}`);
           cell.append(el('span', 'num', String(Number(key.slice(8)))));
           for (const it of items.slice(0, 3)) cell.append(el('span', `chip ${it.cls}`, it.text));
