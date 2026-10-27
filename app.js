@@ -265,7 +265,8 @@
   // ---- dashboard --------------------------------------------------------------------------
   const LABEL = {
     add: 'Added two numbers', multiply: 'Multiplied two numbers', weather: 'Looked up the weather',
-    add_note: 'Saved a note', list_notes: 'Read back your notes', list_events: 'Checked your calendar',
+    add_note: 'Saved a note', list_notes: 'Read back your notes', list_events: 'Checked your calendar', create_event: 'Added a calendar event',
+    agent_create: 'Created an agent', agent_run: 'Ran an agent', agent_delete: 'Deleted an agent',
     draft_email: 'Saved an email draft', write_file: 'Created a file', write_excel: 'Created a spreadsheet',
     view_excel: 'Opened a spreadsheet', edit_excel: 'Edited a spreadsheet', code_task: 'Prepared a code change',
     push_change: 'Opened a pull request', cloud_ok: 'Allowed cloud AI for code', list_repos: 'Listed your repositories',

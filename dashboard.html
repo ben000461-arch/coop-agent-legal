@@ -90,6 +90,7 @@
               <li>“what’s on my calendar today?”</li>
               <li>“note buy milk”</li>
               <li>“draft an email to Sam about Friday”</li>
+              <li>“schedule a meeting with Tom tomorrow at 3pm”</li>
             </ul>
             <p>Then check the <strong>Logs</strong> page. Each thing it did shows up there within a minute.</p>
             <p><button class="btn ghost small" type="button" id="go-logs">Go to Logs</button> <button class="btn" type="button" data-step-done="try">Done</button></p>
@@ -202,6 +203,8 @@
         <h2>Things you can say</h2>
         <ul>
           <li>“what’s on my calendar today?”</li>
+          <li>“schedule a meeting with Tom tomorrow at 3pm” (it asks before adding it)</li>
+          <li>“build an agent”, a helper that runs on a schedule and texts you</li>
           <li>“draft an email to Sam about Friday”</li>
           <li>“make a spreadsheet of my expenses”</li>
           <li>“note buy milk”, then “show my notes”</li>
@@ -213,6 +216,8 @@
           <dt><code>/help</code></dt><dd>What the agent can do. Add a question, like <code>/help what should I do next</code>.</dd>
           <dt><code>/connect google</code></dt><dd>Link Gmail drafts and your calendar.</dd>
           <dt><code>/connect github</code></dt><dd>Link the code projects you choose.</dd>
+          <dt><code>/agents</code></dt><dd>Build and manage your agents (up to 3). Each runs on a schedule you choose and only reads and reports; it can’t change anything by itself.</dd>
+          <dt><code>/timezone</code></dt><dd>Set the time zone your calendar and agents use.</dd>
           <dt><code>/connections</code></dt><dd>See what’s connected.</dd>
           <dt><code>/disconnect google</code></dt><dd>Remove a connection (also <code>github</code>).</dd>
           <dt><code>/code in myapp, fix the crash in server.js</code></dt><dd>Ask for a code change. It shows you the change first.</dd>
@@ -224,7 +229,7 @@
         <h2>Good to know</h2>
         <ul>
           <li>It only saves email <strong>drafts</strong>. You send them yourself.</li>
-          <li>It only <strong>reads</strong> your calendar.</li>
+          <li>It adds a calendar event only <strong>after you say yes</strong>, and it never edits or deletes the ones you already have. (Google words that permission as “view and edit events”.)</li>
           <li>Code changes go onto a new branch as a pull request, and only after you say yes.</li>
           <li>Pasted passwords and keys are refused, so don’t send them in the chat.</li>
         </ul>
