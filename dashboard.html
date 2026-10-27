@@ -16,14 +16,18 @@
   <nav class="side" aria-label="Sections">
     <button type="button" class="newchat" data-view="chat">＋ New chat</button>
     <div id="chat-list" class="chatlist" role="list" aria-label="Your chats"></div>
-    <button type="button" data-view="schedule">Schedule</button>
-    <button type="button" data-view="agents">Agents</button>
-    <button type="button" data-view="tools">Tools</button>
-    <button type="button" data-view="start">Get started</button>
-    <button type="button" data-view="agent">Agent</button>
-    <button type="button" data-view="logs">Logs</button>
-    <button type="button" data-view="help">Help</button>
-    <button type="button" data-view="settings">Settings</button>
+    <div class="navmain">
+      <button type="button" data-view="start">Get started</button>
+      <button type="button" data-view="logs">Logs</button>
+      <button type="button" data-view="tools">Tools</button>
+      <button type="button" class="sub" data-view="schedule">Schedule</button>
+      <button type="button" data-view="agents">Agents</button>
+    </div>
+    <div class="navfoot">
+      <button type="button" data-view="settings"><svg class="ico" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h0a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5h0a1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span>Settings</span></button>
+      <button type="button" data-view="help"><svg class="ico" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 1-1 1.7"/><path d="M12 17h.01"/></svg><span>Help</span></button>
+      <p class="legal"><a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a></p>
+    </div>
   </nav>
   <main class="main">
     <div id="paused-banner" class="notice" role="status" hidden></div>
@@ -106,25 +110,6 @@
       <p class="muted small"><button class="linklike" type="button" id="steps-reset">Start these steps over</button></p>
     </section>
 
-    <section id="view-agent" hidden>
-      <h1>Agent</h1>
-      <p id="agent-sub" class="muted">Your agent</p>
-      <div class="panel">
-        <h2>What it is</h2>
-        <p>A private AI assistant you text on Telegram. It helps with everyday work: emails, spreadsheets, notes, your calendar and small code changes.</p>
-        <h2>What it can do</h2>
-        <ul>
-          <li>Save email <strong>drafts</strong> in Gmail. It never sends email and never reads your inbox.</li>
-          <li>View your Google Calendar to answer questions and, only after your yes, add events. It never changes or deletes events you already have.</li>
-          <li>Create and edit spreadsheets and text files, and keep notes.</li>
-          <li>Prepare code changes in the GitHub projects you choose, as a pull request, only after you say yes.</li>
-        </ul>
-        <h2>How it works</h2>
-        <p>It shows you what it is about to do and waits for your yes before it changes anything. Everything it does is listed on the Logs page, and the Tools page shows which tools it used.</p>
-        <p><a id="open-tg" class="btn small" href="#" target="_blank" rel="noopener noreferrer" hidden>Open in Telegram</a></p>
-      </div>
-    </section>
-
     <section id="view-schedule" hidden>
       <h1>Schedule</h1>
       <p id="sch-sub" class="muted">Your calendar and when your agents will run.</p>
@@ -146,12 +131,12 @@
     </section>
 
     <section id="view-agents" hidden>
-      <h1>Agents</h1>
+      <div class="pagehead"><h1>Agents</h1><button id="ag-new" class="btn small" type="button">＋ Create agent</button></div>
       <p id="ag-sub" class="muted">Small helpers that do one job for you on a schedule.</p>
       <div class="bar"><span class="spacer"></span><button id="ag-refresh" class="btn ghost small" type="button">Refresh</button></div>
       <div id="ag-note" class="panel" hidden></div>
       <div id="ag-list"></div>
-      <form id="ag-form" class="panel" autocomplete="off">
+      <form id="ag-form" class="panel" autocomplete="off" hidden>
         <h2 id="ag-form-title">Build an agent</h2>
         <label>What should it do?<textarea id="ag-purpose" rows="2" maxlength="300" placeholder="Tell me what is on my calendar and my notes"></textarea></label>
         <label>What should it know about your business? <span class="muted small">(optional)</span><textarea id="ag-info" rows="2" maxlength="600" placeholder="We are a dental clinic, open 8 to 5"></textarea></label>
@@ -161,8 +146,26 @@
         <p class="chips" id="ag-chips"></p>
         <label>Name <span class="muted small">(optional)</span><input id="ag-name" type="text" maxlength="30" placeholder="Morning briefing"></label>
         <p id="ag-msg" class="muted small" role="status"></p>
-        <button id="ag-create" class="btn small" type="submit">Create agent</button> <button id="ag-cancel" class="btn ghost small" type="button" hidden>Cancel</button>
+        <button id="ag-create" class="btn small" type="submit">Create agent</button> <button id="ag-cancel" class="btn ghost small" type="button">Cancel</button>
       </form>
+      <details id="about-agent" class="panel about">
+        <summary>About your agent</summary>
+        <p id="agent-sub" class="muted">Your agent</p>
+        <h2>What it is</h2>
+        <p>A private AI assistant you text on Telegram. It helps with everyday work: emails, spreadsheets, notes, your calendar and small code changes.</p>
+        <h2>What it can do</h2>
+        <ul>
+          <li>Save email <strong>drafts</strong> in Gmail. It never sends email and never reads your inbox.</li>
+          <li>View your Google Calendar to answer questions and, only after your yes, add events. It never changes or deletes events you already have.</li>
+          <li>Create and edit spreadsheets and text files, and keep notes.</li>
+          <li>Prepare code changes in the GitHub projects you choose, as a pull request, only after you say yes.</li>
+        </ul>
+        <h2>How it works</h2>
+        <p>It shows you what it is about to do and waits for your yes before it changes anything. Everything it does is listed on the Logs page, and the Tools page shows which tools it used.</p>
+        <p><a id="open-tg" class="btn small" href="#" target="_blank" rel="noopener noreferrer" hidden>Open in Telegram</a></p>
+      
+      </details>
+
     </section>
 
     <section id="view-tools" hidden>
@@ -347,7 +350,6 @@
       </div>
     </section>
 
-    <p class="foot"><a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a></p>
   </main>
 </div>
 <script src="config.js"></script>

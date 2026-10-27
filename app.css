@@ -350,3 +350,23 @@ textarea{resize:vertical;font-family:inherit}
 .agentcard .sched input{flex:1}
 .state{font-size:.7rem;font-family:var(--mono);text-transform:uppercase;letter-spacing:.06em;border:1px solid var(--line);border-radius:6px;padding:1px 6px;color:var(--muted);font-weight:400}
 .state.active{color:var(--fg)}
+
+/* sidebar: main sections, then settings/help/legal pinned to the bottom */
+.side{position:sticky;top:0;align-self:start;height:calc(100vh - 60px);overflow-y:auto}
+.navmain{display:flex;flex-direction:column;gap:2px;margin-top:6px}
+.navfoot{margin-top:auto;display:flex;flex-direction:column;gap:2px;padding-top:12px;border-top:1px solid var(--line-soft)}
+.side .sub{padding-left:28px;font-size:.9rem}
+.side button .ico{vertical-align:-3px;margin-right:9px}
+.legal{margin:10px 12px 0;font-size:.75rem;color:var(--dim)}
+.legal a{color:var(--dim)}.legal a:hover{color:var(--fg)}
+.pagehead{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.pagehead h1{margin:0}
+.about{margin-top:28px}
+.about summary{cursor:pointer;font-weight:600}
+.about[open] summary{margin-bottom:10px}
+@media (max-width:760px){
+  .side{position:static;height:auto;overflow:visible}
+  .navmain,.navfoot{flex-direction:row;flex-wrap:wrap;gap:6px;margin:0;padding:0;border:0}
+  .side .sub{padding-left:12px}
+  .legal{margin:0;align-self:center}
+}

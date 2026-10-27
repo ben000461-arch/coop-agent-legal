@@ -317,9 +317,9 @@
     const isAuthError = (e) => e && (e.status === 401 || e.code === 'PGRST301' || /jwt/i.test(e.message || ''));
 
     // which view is showing
-    const VIEWS = ['chat', 'schedule', 'agents', 'tools', 'start', 'agent', 'logs', 'help', 'settings'];
-    const NEEDS_AGENT = new Set(['chat', 'schedule', 'agents', 'tools', 'agent', 'logs']); // Get started, Help and Settings work for anyone
-    const fromHash = location.hash.slice(1);
+    const VIEWS = ['chat', 'schedule', 'agents', 'tools', 'start', 'logs', 'help', 'settings'];
+    const NEEDS_AGENT = new Set(['chat', 'schedule', 'agents', 'tools', 'logs']); // Get started, Help and Settings work for anyone
+    const fromHash = location.hash.slice(1) === 'agent' ? 'agents' : location.hash.slice(1); // the old Agent page now lives under Agents
     let view = VIEWS.includes(fromHash) ? fromHash : null; // chosen after we know if the login is linked
     let linked = null; // null = not known yet
     function show(v) {
@@ -474,7 +474,7 @@
         const r = await webCall('GET', '/agents');
         this.busy = false;
         if (r.status !== 200) {
-          if (!this.data || !quiet) { this.data = null; $('ag-list').replaceChildren(); $('ag-form').hidden = true; setNote($('ag-note'), webError(r, "Couldn't load your agents. Try Refresh in a moment.")); }
+          if (!this.data || !quiet) { this.data = null; $('ag-list').replaceChildren(); this.closeForm(); $('ag-new').disabled = true; setNote($('ag-note'), webError(r, "Couldn't load your agents. Try Refresh in a moment.")); }
           return;
         }
         this.data = r.body; setNote($('ag-note'), ''); this.render();
@@ -487,7 +487,8 @@
         if (!d.agents.length) list.append(el('p', 'muted', 'No agents yet. Build your first one below.'));
         for (const a of d.agents) list.append(this.card(a));
         const full = d.agents.length >= d.cap;
-        $('ag-form').hidden = full && !this.editId;
+        $('ag-new').disabled = full;
+        $('ag-new').title = full ? `You have ${d.cap} agents, the most you can have right now.` : '';
         if (full) setNote($('ag-note'), `You have ${d.cap} agents, the most you can have right now. Delete one to build another.`);
         this.renderTools();
       },
@@ -537,7 +538,7 @@
       async run(a, btn) {
         btn.disabled = true; btn.textContent = 'Running…';
         const r = await webCall('POST', `/agents/${encodeURIComponent(a.id)}/run`, {});
-        this.out[a.id] = r.status === 200 && r.body.ok ? (r.body.text || 'Done.') : webError(r, "It didn't run. Try again in a moment.");
+        this.out[a.id] = r.status === 200 && r.body.ok ? ((r.body.text || 'Done.') + (r.body.notified ? '\n\n✓ Also sent to your Telegram.' : '')) : webError(r, "It didn't run. Try again in a moment.");
         await this.load(true);
         this.render();
       },
@@ -553,8 +554,8 @@
         $('ag-schedule').value = ''; $('ag-schedule').placeholder = `Leave empty to keep: ${a.scheduleText}`;
         for (const i of $('ag-tools').querySelectorAll('input')) i.checked = !i.disabled && a.tools.includes(i.value);
         $('ag-sheet-row').hidden = !$('ag-tools').querySelector('input[value=sheet]:checked');
-        $('ag-form-title').textContent = `Edit ${a.name}`; $('ag-create').textContent = 'Save changes'; $('ag-cancel').hidden = false;
-        $('ag-msg').textContent = ''; $('ag-form').hidden = false;
+        $('ag-form-title').textContent = `Edit ${a.name}`; $('ag-create').textContent = 'Save changes';
+        $('ag-msg').textContent = ''; this.openForm();
         $('ag-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
       },
       stopEdit() {
@@ -563,9 +564,11 @@
         $('ag-schedule').placeholder = 'every weekday at 8am';
         for (const i of $('ag-tools').querySelectorAll('input')) i.checked = false;
         $('ag-sheet-row').hidden = true;
-        $('ag-form-title').textContent = 'Build an agent'; $('ag-create').textContent = 'Create agent'; $('ag-cancel').hidden = true;
-        if (this.data) $('ag-form').hidden = this.data.agents.length >= this.data.cap;
+        $('ag-form-title').textContent = 'Build an agent'; $('ag-create').textContent = 'Create agent';
+        this.closeForm();
       },
+      openForm() { $('ag-form').hidden = false; $('ag-new').hidden = true; },
+      closeForm() { $('ag-form').hidden = true; $('ag-new').hidden = false; },
       renderTools() {
         const box = $('ag-tools');
         const keep = new Set([...box.querySelectorAll('input:checked')].map((i) => i.value));
@@ -591,7 +594,7 @@
         $('ag-create').disabled = false;
         if ((r.status === 201 || (editing && r.status === 200)) && r.body.ok) {
           const name = r.body.agent.name;
-          if (editing) this.stopEdit(); else for (const id of ['ag-purpose', 'ag-info', 'ag-sheet', 'ag-schedule', 'ag-name']) $(id).value = '';
+          if (editing) this.stopEdit(); else { for (const id of ['ag-purpose', 'ag-info', 'ag-sheet', 'ag-schedule', 'ag-name']) $(id).value = ''; for (const i of $('ag-tools').querySelectorAll('input')) i.checked = false; $('ag-sheet-row').hidden = true; this.closeForm(); }
           msg.textContent = editing ? `Saved “${name}”.` : `Created “${name}”.`;
           await this.load(true);
           return;
@@ -602,6 +605,7 @@
       },
     };
     $('ag-cancel').addEventListener('click', () => { agentsView.stopEdit(); $('ag-msg').textContent = ''; });
+    $('ag-new').addEventListener('click', () => { agentsView.stopEdit(); agentsView.openForm(); $('ag-msg').textContent = ''; $('ag-purpose').focus(); $('ag-form').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
     $('ag-refresh').addEventListener('click', () => agentsView.load());
     $('ag-form').addEventListener('submit', (e) => { e.preventDefault(); agentsView.create(); });
     { const chips = $('ag-chips'); for (const ex of AGENT_EXAMPLES) { const b = el('button', null, ex); b.type = 'button'; b.addEventListener('click', () => { $('ag-schedule').value = ex; }); chips.append(b); } }
