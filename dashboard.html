@@ -16,6 +16,8 @@
   <nav class="side" aria-label="Sections">
     <button type="button" class="newchat" data-view="chat">＋ New chat</button>
     <div id="chat-list" class="chatlist" role="list" aria-label="Your chats"></div>
+    <button type="button" data-view="schedule">Schedule</button>
+    <button type="button" data-view="agents">Agents</button>
     <button type="button" data-view="tools">Tools</button>
     <button type="button" data-view="start">Get started</button>
     <button type="button" data-view="agent">Agent</button>
@@ -113,7 +115,7 @@
         <h2>What it can do</h2>
         <ul>
           <li>Save email <strong>drafts</strong> in Gmail. It never sends email and never reads your inbox.</li>
-          <li>Read your Google Calendar to answer questions. It never changes events.</li>
+          <li>View your Google Calendar to answer questions and, only after your yes, add events. It never changes or deletes events you already have.</li>
           <li>Create and edit spreadsheets and text files, and keep notes.</li>
           <li>Prepare code changes in the GitHub projects you choose, as a pull request, only after you say yes.</li>
         </ul>
@@ -121,6 +123,46 @@
         <p>It shows you what it is about to do and waits for your yes before it changes anything. Everything it does is listed on the Logs page, and the Tools page shows which tools it used.</p>
         <p><a id="open-tg" class="btn small" href="#" target="_blank" rel="noopener noreferrer" hidden>Open in Telegram</a></p>
       </div>
+    </section>
+
+    <section id="view-schedule" hidden>
+      <h1>Schedule</h1>
+      <p id="sch-sub" class="muted">Your calendar and when your agents will run.</p>
+      <div class="bar"><span class="spacer"></span><span id="sch-updated" class="muted small"></span><button id="sch-refresh" class="btn ghost small" type="button">Refresh</button></div>
+      <div id="sch-note" class="panel" hidden></div>
+      <div id="sch-list"></div>
+      <form id="sch-form" class="panel" autocomplete="off">
+        <h2>Add an event</h2>
+        <div class="formgrid">
+          <label>What<input id="sch-title" type="text" maxlength="80" placeholder="Lunch with Dana"></label>
+          <label>Day<input id="sch-date" type="date"></label>
+          <label>Start<input id="sch-time" type="time" value="09:00"></label>
+          <label>Length<select id="sch-mins"><option value="15">15 min</option><option value="30">30 min</option><option value="45">45 min</option><option value="60" selected>1 hour</option><option value="90">1.5 hours</option><option value="120">2 hours</option></select></label>
+        </div>
+        <div id="sch-confirm" class="notice" hidden></div>
+        <p id="sch-msg" class="muted small" role="status"></p>
+        <button id="sch-add" class="btn small" type="submit">Add to my calendar</button>
+      </form>
+    </section>
+
+    <section id="view-agents" hidden>
+      <h1>Agents</h1>
+      <p id="ag-sub" class="muted">Small helpers that do one job for you on a schedule.</p>
+      <div class="bar"><span class="spacer"></span><button id="ag-refresh" class="btn ghost small" type="button">Refresh</button></div>
+      <div id="ag-note" class="panel" hidden></div>
+      <div id="ag-list"></div>
+      <form id="ag-form" class="panel" autocomplete="off">
+        <h2 id="ag-form-title">Build an agent</h2>
+        <label>What should it do?<textarea id="ag-purpose" rows="2" maxlength="300" placeholder="Tell me what is on my calendar and my notes"></textarea></label>
+        <label>What should it know about your business? <span class="muted small">(optional)</span><textarea id="ag-info" rows="2" maxlength="600" placeholder="We are a dental clinic, open 8 to 5"></textarea></label>
+        <fieldset id="ag-tools"><legend>Tools it may look at</legend></fieldset>
+        <label id="ag-sheet-row" hidden>Spreadsheet name<input id="ag-sheet" type="text" maxlength="60" placeholder="inventory.xlsx"></label>
+        <label>When should it run?<input id="ag-schedule" type="text" maxlength="120" placeholder="every weekday at 8am"></label>
+        <p class="chips" id="ag-chips"></p>
+        <label>Name <span class="muted small">(optional)</span><input id="ag-name" type="text" maxlength="30" placeholder="Morning briefing"></label>
+        <p id="ag-msg" class="muted small" role="status"></p>
+        <button id="ag-create" class="btn small" type="submit">Create agent</button> <button id="ag-cancel" class="btn ghost small" type="button" hidden>Cancel</button>
+      </form>
     </section>
 
     <section id="view-tools" hidden>

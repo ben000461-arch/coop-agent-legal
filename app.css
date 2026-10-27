@@ -58,7 +58,7 @@ h1,h2,h3{font-family:var(--display);letter-spacing:-.02em}
 .btn.ghost:hover{border-color:var(--strong);opacity:1}
 .btn.small{padding:7px 14px;font-size:.875rem;font-weight:500}
 label{display:block;font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:500;margin:18px 0 7px}
-input[type=email],input[type=password],input[type=text],select,textarea{width:100%;padding:11px 13px;border:1px solid var(--line);border-radius:8px;background:var(--inset);color:var(--fg);font:inherit;font-size:.95rem}
+input[type=email],input[type=password],input[type=text],input[type=date],input[type=time],select,textarea{width:100%;padding:11px 13px;border:1px solid var(--line);border-radius:8px;background:var(--inset);color:var(--fg);font:inherit;font-size:.95rem}
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--strong)}
 
 /* fatal setup error */
@@ -312,3 +312,41 @@ textarea{resize:vertical;font-family:inherit}
 .codeblock pre code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.85rem;line-height:1.55;color:var(--fg)}
 .msg>.codeblock:first-child{margin-top:0}.msg>.codeblock:last-child{margin-bottom:0}
 .codeblock pre code{border:0;background:none;padding:0;border-radius:0;display:block}
+
+/* schedule + agents */
+#view-schedule label,#view-agents label{margin:14px 0 0}
+#view-schedule label input,#view-schedule label select,#view-agents label input,#view-agents label textarea{margin-top:5px;font-weight:400}
+#view-agents textarea{resize:vertical}
+.formgrid{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:0 12px}
+.formgrid label:first-child{grid-column:1/-1}
+@media (min-width:760px){.formgrid label:first-child{grid-column:auto}}
+@media (max-width:759px){.formgrid{grid-template-columns:1fr 1fr}}
+#view-agents fieldset{border:1px solid var(--line-soft);border-radius:10px;margin:14px 0 0;padding:8px 14px 12px}
+#view-agents legend{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:500;padding:0 6px}
+#view-agents fieldset label{display:flex;gap:10px;align-items:flex-start;font-size:.95rem;text-transform:none;letter-spacing:0;color:var(--fg);font-weight:400;margin:8px 0 0}
+#view-agents fieldset input{margin-top:3px}
+#view-agents fieldset .why{color:var(--muted);font-size:.8rem;display:block}
+#view-agents .muted.small,#view-schedule .muted.small{text-transform:none;letter-spacing:0}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 0}
+.chips button{background:none;border:1px solid var(--line);border-radius:999px;padding:3px 11px;font:inherit;font-size:.8rem;color:var(--muted);cursor:pointer}
+.chips button:hover{border-color:var(--strong);color:var(--fg)}
+#sch-form,#ag-form{margin-top:20px}
+#sch-add,#ag-create{margin-top:6px}
+.day{margin:18px 0 0}
+.day h3{font-size:.8rem;font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--dim);font-weight:400;margin:0 0 6px}
+.item{display:flex;gap:14px;padding:9px 0;border-bottom:1px solid var(--line-soft)}
+.item .when{flex:0 0 5.5rem;color:var(--muted);font-size:.875rem}
+.item .what{flex:1;min-width:0;overflow-wrap:anywhere}
+.item.agentrun .what{color:var(--muted)}
+.tag{display:inline-block;font-size:.7rem;font-family:var(--mono);border:1px solid var(--line);border-radius:6px;padding:1px 6px;margin-left:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.notice{border:1px solid var(--line);background:var(--inset);border-radius:10px;padding:12px 14px;margin:12px 0 0;font-size:.9rem}
+.notice .row{display:flex;gap:8px;margin-top:10px}
+.agentcard{margin:14px 0 0}
+.agentcard h2{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.agentcard .meta{color:var(--muted);font-size:.875rem;margin:2px 0}
+.agentcard .row{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.agentcard .out{white-space:pre-wrap;border-left:2px solid var(--line);padding:2px 0 2px 12px;margin:12px 0 0;font-size:.9rem}
+.agentcard .sched{display:flex;gap:8px;margin-top:12px}
+.agentcard .sched input{flex:1}
+.state{font-size:.7rem;font-family:var(--mono);text-transform:uppercase;letter-spacing:.06em;border:1px solid var(--line);border-radius:6px;padding:1px 6px;color:var(--muted);font-weight:400}
+.state.active{color:var(--fg)}

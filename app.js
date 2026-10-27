@@ -317,8 +317,8 @@
     const isAuthError = (e) => e && (e.status === 401 || e.code === 'PGRST301' || /jwt/i.test(e.message || ''));
 
     // which view is showing
-    const VIEWS = ['chat', 'tools', 'start', 'agent', 'logs', 'help', 'settings'];
-    const NEEDS_AGENT = new Set(['chat', 'tools', 'agent', 'logs']); // Get started, Help and Settings work for anyone
+    const VIEWS = ['chat', 'schedule', 'agents', 'tools', 'start', 'agent', 'logs', 'help', 'settings'];
+    const NEEDS_AGENT = new Set(['chat', 'schedule', 'agents', 'tools', 'agent', 'logs']); // Get started, Help and Settings work for anyone
     const fromHash = location.hash.slice(1);
     let view = VIEWS.includes(fromHash) ? fromHash : null; // chosen after we know if the login is linked
     let linked = null; // null = not known yet
@@ -336,6 +336,8 @@
       }
       if (v === 'logs' && linked === true && !logs.started) logs.start();
       if (v === 'tools' && linked === true) tools.load();
+      if (v === 'schedule' && linked === true) schedule.load();
+      if (v === 'agents' && linked === true) agentsView.load();
       if (v === 'settings') settings.open();
     }
     for (const b of document.querySelectorAll('.side button[data-view]')) {
@@ -345,6 +347,264 @@
         show(b.dataset.view);
       });
     }
+
+    // ---- schedule + agents: these talk to the bot's /web/schedule and /web/agents (same login as chat)
+    const webBase = /\/chat$/.test(cfg.chatApi || '') ? cfg.chatApi.replace(/\/chat$/, '') : '';
+    async function webCall(method, path, body) {
+      if (!webBase) return { status: 0, body: { error: 'off' } };
+      const { data: s } = await db.auth.getSession();
+      const token = s.session && s.session.access_token;
+      if (!token) { sessionExpired(); return { status: 401, body: {} }; }
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 60000);
+      try {
+        const res = await fetch(webBase + path, {
+          method, signal: ctl.signal,
+          headers: { Authorization: `Bearer ${token}`, 'ngrok-skip-browser-warning': '1', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+          body: body !== undefined ? JSON.stringify(body) : undefined,
+        });
+        if (res.status === 401) { sessionExpired(); return { status: 401, body: {} }; }
+        let out = null; try { out = await res.json(); } catch { /* not json */ }
+        return { status: res.status, body: out && typeof out === 'object' ? out : {} };
+      } catch { return { status: 0, body: { error: 'network' } }; } finally { clearTimeout(timer); }
+    }
+    const webError = (r, fallback) => {
+      if (r.body && typeof r.body.message === 'string' && r.body.message) return r.body.message.slice(0, 400);
+      if (r.status === 0) return webBase ? "Couldn't reach your agent. Check that it's running, then try again." : "This page isn't connected to your agent yet.";
+      if (r.status === 429) return 'Slow down a little and try again in a minute.';
+      if (r.status === 409 && r.body.error === 'not_linked') return 'Link this login to your agent first (see Get started).';
+      if (r.status >= 500) return 'Something went wrong on the agent’s side. Try again in a moment.';
+      return fallback;
+    };
+    const tzDay = (d, tz) => { try { return new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d); } catch { return d.toISOString().slice(0, 10); } };
+    const clockStr = (d, tz) => { try { return d.toLocaleTimeString([], { timeZone: tz, hour: 'numeric', minute: '2-digit' }); } catch { return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } };
+    const plusDay = (key, n) => new Date(Date.parse(`${key}T12:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
+    const dayTitle = (key, today) => {
+      const base = new Date(`${key}T12:00:00Z`).toLocaleDateString([], { timeZone: 'UTC', weekday: 'long', month: 'short', day: 'numeric' });
+      return key === today ? `Today · ${base}` : key === plusDay(today, 1) ? `Tomorrow · ${base}` : base;
+    };
+    const setNote = (box, text) => { box.hidden = !text; box.textContent = text || ''; };
+
+    const schedule = {
+      data: null, busy: false, confirmPayload: null,
+      async load(quiet) {
+        if (this.busy) return;
+        this.busy = true;
+        if (!quiet) $('sch-updated').textContent = 'Loading…';
+        const r = await webCall('GET', '/schedule?days=7');
+        this.busy = false;
+        if (r.status !== 200) {
+          $('sch-updated').textContent = '';
+          if (!this.data || !quiet) { this.data = null; $('sch-list').replaceChildren(); setNote($('sch-note'), webError(r, "Couldn't load your schedule. Try Refresh in a moment.")); $('sch-add').disabled = true; }
+          return;
+        }
+        this.data = r.body; this.render();
+        $('sch-updated').textContent = `Updated ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+      },
+      render() {
+        const d = this.data, tz = d.tz, list = $('sch-list');
+        $('sch-sub').textContent = `Your calendar and when your agents will run. Times are in ${String(tz).replace(/_/g, ' ')}.`;
+        const notes = { off: "Calendar isn't switched on for your account.", not_connected: 'Your calendar isn’t connected yet. In Telegram, send /connect google to your agent.', reconnect: 'Your Google connection expired. In Telegram, send /connect google to your agent.', unavailable: 'Google didn’t answer just now. Try Refresh in a moment.' };
+        setNote($('sch-note'), notes[d.calendar] || '');
+        $('sch-add').disabled = d.calendar !== 'ok';
+        if (!$('sch-date').value) $('sch-date').value = d.today;
+        const items = [];
+        for (const e of d.events) {
+          if (e.allDay) items.push({ key: String(e.start).slice(0, 10), order: 0, at: 0, when: 'All day', text: e.title || '(no title)', agent: false });
+          else { const t = new Date(e.start); if (!Number.isNaN(t.getTime())) items.push({ key: tzDay(t, tz), order: 1, at: t.getTime(), when: clockStr(t, tz), text: e.title || '(no title)', agent: false }); }
+        }
+        for (const r of d.runs) { const t = new Date(r.at); if (!Number.isNaN(t.getTime())) items.push({ key: tzDay(t, tz), order: 1, at: t.getTime(), when: clockStr(t, tz), text: `${r.name} runs`, agent: true }); }
+        items.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : a.order - b.order || a.at - b.at));
+        list.replaceChildren();
+        if (!items.length) list.append(el('p', 'muted', d.calendar === 'ok' ? 'Nothing on your calendar for the next 7 days.' : 'Nothing to show yet.'));
+        let cur = null, box = null;
+        for (const it of items) {
+          if (it.key !== cur) { cur = it.key; box = el('div', 'day'); box.append(el('h3', null, dayTitle(cur, d.today))); list.append(box); }
+          const row = el('div', it.agent ? 'item agentrun' : 'item');
+          row.append(el('span', 'when', it.when));
+          const what = el('span', 'what', it.text);
+          if (it.agent) what.append(el('span', 'tag', 'agent'));
+          row.append(what); box.append(row);
+        }
+        for (const b of d.beforeEvent) list.append(el('p', 'muted small', `${b.name} sends you a brief ${b.minutes} minutes before each event.`));
+      },
+      clearConfirm() { this.confirmPayload = null; $('sch-confirm').hidden = true; $('sch-confirm').replaceChildren(); },
+      async add(force) {
+        const msg = $('sch-msg');
+        const payload = force && this.confirmPayload ? { ...this.confirmPayload, force: true } : {
+          title: $('sch-title').value.trim(), date: $('sch-date').value, time: $('sch-time').value, minutes: Number($('sch-mins').value) || 60,
+        };
+        if (!payload.title) { msg.textContent = 'Give the event a name.'; return; }
+        if (!payload.date || !payload.time) { msg.textContent = 'Pick a day and a start time.'; return; }
+        this.clearConfirm();
+        $('sch-add').disabled = true; msg.textContent = 'Adding…';
+        const r = await webCall('POST', '/schedule/event', payload);
+        $('sch-add').disabled = !this.data || this.data.calendar !== 'ok';
+        if (r.status === 200 && r.body.needsConfirm) {
+          msg.textContent = '';
+          this.confirmPayload = { title: payload.title, date: payload.date, time: payload.time, minutes: payload.minutes };
+          const box = $('sch-confirm');
+          box.append(el('div', null, `That overlaps with ${(r.body.clash || []).map((c) => `${String(c.title).slice(0, 60)} (${clockStr(new Date(c.start), this.data ? this.data.tz : undefined)})`).join(', ')}. Add it anyway?`));
+          const row = el('div', 'row');
+          const yes = el('button', 'btn small', 'Add anyway'); yes.type = 'button'; yes.addEventListener('click', () => this.add(true));
+          const no = el('button', 'btn ghost small', 'Cancel'); no.type = 'button'; no.addEventListener('click', () => { this.clearConfirm(); msg.textContent = 'Not added.'; });
+          row.append(yes, no); box.append(row); box.hidden = false;
+          return;
+        }
+        if (r.status === 200 && r.body.ok) {
+          msg.textContent = `Added “${payload.title}” to your calendar.`;
+          $('sch-title').value = '';
+          this.load(true);
+          return;
+        }
+        msg.textContent = webError(r, "That didn't work. Nothing was added.");
+      },
+    };
+    $('sch-refresh').addEventListener('click', () => schedule.load());
+    $('sch-form').addEventListener('submit', (e) => { e.preventDefault(); schedule.add(false); });
+    for (const id of ['sch-title', 'sch-date', 'sch-time', 'sch-mins']) $(id).addEventListener('input', () => schedule.clearConfirm());
+    setInterval(() => { if (view === 'schedule' && linked === true && !document.hidden) schedule.load(true); }, 60000);
+
+    const AGENT_EXAMPLES = ['every weekday at 8am', 'daily at 5:30pm', 'tomorrow at 9am', '30 minutes before every meeting', 'only when I ask'];
+    const agentsView = {
+      data: null, busy: false, out: {}, editing: null, armed: null, editId: null,
+      async load(quiet) {
+        if (this.busy) return;
+        this.busy = true;
+        const r = await webCall('GET', '/agents');
+        this.busy = false;
+        if (r.status !== 200) {
+          if (!this.data || !quiet) { this.data = null; $('ag-list').replaceChildren(); $('ag-form').hidden = true; setNote($('ag-note'), webError(r, "Couldn't load your agents. Try Refresh in a moment.")); }
+          return;
+        }
+        this.data = r.body; setNote($('ag-note'), ''); this.render();
+      },
+      toolLabel(k) { const t = this.data.tools.find((x) => x.key === k); return k === 'sheet' ? 'Spreadsheet' : (t ? t.label : k); },
+      render() {
+        const d = this.data, list = $('ag-list');
+        $('ag-sub').textContent = `${d.agents.length} of ${d.cap} agents. Each one does one job for you, on a schedule you choose.`;
+        list.replaceChildren();
+        if (!d.agents.length) list.append(el('p', 'muted', 'No agents yet. Build your first one below.'));
+        for (const a of d.agents) list.append(this.card(a));
+        const full = d.agents.length >= d.cap;
+        $('ag-form').hidden = full && !this.editId;
+        if (full) setNote($('ag-note'), `You have ${d.cap} agents, the most you can have right now. Delete one to build another.`);
+        this.renderTools();
+      },
+      card(a) {
+        const c = el('div', 'panel agentcard');
+        const h = el('h2', null, a.name);
+        h.append(el('span', `state ${a.state}`, a.state));
+        c.append(h);
+        c.append(el('p', 'meta', a.purpose));
+        if (a.info) c.append(el('p', 'meta', `Knows: ${a.info}`));
+        c.append(el('p', 'meta', `When: ${a.scheduleText}`));
+        c.append(el('p', 'meta', `Looks at: ${a.tools.length ? a.tools.map((k) => (k === 'sheet' && a.sheet ? `Spreadsheet (${a.sheet})` : this.toolLabel(k))).join(', ') : 'nothing (it just writes you a message)'}`));
+        c.append(el('p', 'meta', a.lastRunAt ? `Last ran ${new Date(a.lastRunAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}${a.lastStatus ? ` · ${a.lastStatus}` : ''} · ${a.runs} run${a.runs === 1 ? '' : 's'}` : 'Hasn’t run yet.'));
+        const row = el('div', 'row');
+        const mk = (label, cls, fn) => { const b = el('button', cls, label); b.type = 'button'; b.addEventListener('click', () => fn(b)); row.append(b); return b; };
+        mk('Run now', 'btn small', (b) => this.run(a, b));
+        if (a.state !== 'done') mk(a.enabled ? 'Pause' : 'Resume', 'btn ghost small', () => this.verb(a, a.enabled ? 'pause' : 'resume'));
+        mk('Edit', 'btn ghost small', () => this.startEdit(a));
+        mk('Change time', 'btn ghost small', () => { this.editing = this.editing === a.id ? null : a.id; this.render(); });
+        mk(this.armed === a.id ? 'Click again to delete' : 'Delete', 'btn ghost small', (b) => {
+          if (this.armed === a.id) { this.armed = null; this.verb(a, 'delete'); return; }
+          this.armed = a.id; b.textContent = 'Click again to delete';
+          setTimeout(() => { if (this.armed === a.id) { this.armed = null; if (b.isConnected) b.textContent = 'Delete'; } }, 4000);
+        });
+        c.append(row);
+        if (this.editing === a.id) {
+          const s = el('form', 'sched');
+          const inp = el('input'); inp.type = 'text'; inp.maxLength = 120; inp.placeholder = 'every weekday at 8am'; inp.value = '';
+          inp.setAttribute('aria-label', 'New time');
+          const save = el('button', 'btn small', 'Save'); save.type = 'submit';
+          const msg = el('p', 'muted small'); msg.setAttribute('role', 'status');
+          s.append(inp, save);
+          s.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!inp.value.trim()) { msg.textContent = 'Type when it should run.'; return; }
+            save.disabled = true; const r = await webCall('POST', `/agents/${encodeURIComponent(a.id)}/schedule`, { schedule: inp.value.trim() }); save.disabled = false;
+            if (r.status === 200) { this.editing = null; this.load(true); } else msg.textContent = webError(r, "I didn't catch that time.");
+          });
+          c.append(s, msg);
+          const chips = el('p', 'chips');
+          for (const ex of AGENT_EXAMPLES) { const b = el('button', null, ex); b.type = 'button'; b.addEventListener('click', () => { inp.value = ex; }); chips.append(b); }
+          c.append(chips);
+        }
+        if (this.out[a.id]) c.append(el('div', 'out', this.out[a.id]));
+        return c;
+      },
+      async run(a, btn) {
+        btn.disabled = true; btn.textContent = 'Running…';
+        const r = await webCall('POST', `/agents/${encodeURIComponent(a.id)}/run`, {});
+        this.out[a.id] = r.status === 200 && r.body.ok ? (r.body.text || 'Done.') : webError(r, "It didn't run. Try again in a moment.");
+        await this.load(true);
+        this.render();
+      },
+      async verb(a, verb) {
+        const r = await webCall('POST', `/agents/${encodeURIComponent(a.id)}/${verb}`, {});
+        if (r.status !== 200 && r.status !== 404) { this.out[a.id] = webError(r, 'That did not work.'); this.render(); return; }
+        delete this.out[a.id];
+        await this.load(true);
+      },
+      startEdit(a) {
+        this.editId = a.id;
+        $('ag-purpose').value = a.purpose; $('ag-info').value = a.info || ''; $('ag-name').value = a.name; $('ag-sheet').value = a.sheet || '';
+        $('ag-schedule').value = ''; $('ag-schedule').placeholder = `Leave empty to keep: ${a.scheduleText}`;
+        for (const i of $('ag-tools').querySelectorAll('input')) i.checked = !i.disabled && a.tools.includes(i.value);
+        $('ag-sheet-row').hidden = !$('ag-tools').querySelector('input[value=sheet]:checked');
+        $('ag-form-title').textContent = `Edit ${a.name}`; $('ag-create').textContent = 'Save changes'; $('ag-cancel').hidden = false;
+        $('ag-msg').textContent = ''; $('ag-form').hidden = false;
+        $('ag-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      },
+      stopEdit() {
+        this.editId = null;
+        for (const id of ['ag-purpose', 'ag-info', 'ag-sheet', 'ag-schedule', 'ag-name']) $(id).value = '';
+        $('ag-schedule').placeholder = 'every weekday at 8am';
+        for (const i of $('ag-tools').querySelectorAll('input')) i.checked = false;
+        $('ag-sheet-row').hidden = true;
+        $('ag-form-title').textContent = 'Build an agent'; $('ag-create').textContent = 'Create agent'; $('ag-cancel').hidden = true;
+        if (this.data) $('ag-form').hidden = this.data.agents.length >= this.data.cap;
+      },
+      renderTools() {
+        const box = $('ag-tools');
+        const keep = new Set([...box.querySelectorAll('input:checked')].map((i) => i.value));
+        for (const n of [...box.querySelectorAll('label')]) n.remove();
+        for (const t of this.data.tools) {
+          const l = el('label'); const i = el('input'); i.type = 'checkbox'; i.value = t.key; i.disabled = !t.usable; i.checked = t.usable && keep.has(t.key);
+          i.addEventListener('change', () => { $('ag-sheet-row').hidden = !box.querySelector('input[value=sheet]:checked'); });
+          const s = el('span', null, t.label); s.append(el('span', 'why', t.usable ? t.does : `Not available yet: ${t.why}`));
+          l.append(i, s); box.append(l);
+        }
+        $('ag-sheet-row').hidden = !box.querySelector('input[value=sheet]:checked');
+      },
+      async create() {
+        const msg = $('ag-msg');
+        const editing = this.editId;
+        const purpose = $('ag-purpose').value.trim();
+        if (purpose.length < 5) { msg.textContent = 'Say what the agent should do (a short sentence is fine).'; return; }
+        if (!editing && !$('ag-schedule').value.trim()) { msg.textContent = 'Say when it should run, or tap an example.'; return; }
+        const tools = [...$('ag-tools').querySelectorAll('input:checked')].map((i) => i.value);
+        const payload = { purpose, info: $('ag-info').value.trim(), tools, sheet: $('ag-sheet').value.trim(), schedule: $('ag-schedule').value.trim(), name: $('ag-name').value.trim() };
+        $('ag-create').disabled = true; msg.textContent = editing ? 'Saving…' : 'Creating…';
+        const r = await webCall('POST', editing ? `/agents/${encodeURIComponent(editing)}/update` : '/agents', payload);
+        $('ag-create').disabled = false;
+        if ((r.status === 201 || (editing && r.status === 200)) && r.body.ok) {
+          const name = r.body.agent.name;
+          if (editing) this.stopEdit(); else for (const id of ['ag-purpose', 'ag-info', 'ag-sheet', 'ag-schedule', 'ag-name']) $(id).value = '';
+          msg.textContent = editing ? `Saved “${name}”.` : `Created “${name}”.`;
+          await this.load(true);
+          return;
+        }
+        if (editing && r.status === 404) { this.stopEdit(); msg.textContent = 'That agent is already gone.'; await this.load(true); return; }
+        msg.textContent = webError(r, 'That did not work. Nothing was saved.');
+        if (r.status === 409 && r.body.error === 'cap') this.load(true);
+      },
+    };
+    $('ag-cancel').addEventListener('click', () => { agentsView.stopEdit(); $('ag-msg').textContent = ''; });
+    $('ag-refresh').addEventListener('click', () => agentsView.load());
+    $('ag-form').addEventListener('submit', (e) => { e.preventDefault(); agentsView.create(); });
+    { const chips = $('ag-chips'); for (const ex of AGENT_EXAMPLES) { const b = el('button', null, ex); b.type = 'button'; b.addEventListener('click', () => { $('ag-schedule').value = ex; }); chips.append(b); } }
 
     // ---- logs
     const logs = {
@@ -454,7 +714,7 @@
     const TOOLS = [
       {
         id: 'google', name: 'Google', blurb: 'Gmail drafts and your calendar.',
-        can: ['Saves email drafts in Gmail for you to look over. It never sends email and never reads your inbox.', 'Reads your Google Calendar to answer questions. It never changes events.'],
+        can: ['Saves email drafts in Gmail for you to look over. It never sends email and never reads your inbox.', 'Reads your Google Calendar to answer questions and, only after your yes, adds events. It never changes or deletes events you already have.'],
         actions: ['list_events', 'draft_email'], connect: '/connect google', disconnect: '/disconnect google',
         hint: 'On Google’s screen, tick Select all before you continue. The boxes start unticked, and the agent needs both to work.',
       },
