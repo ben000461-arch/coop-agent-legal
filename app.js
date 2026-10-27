@@ -317,33 +317,39 @@
     const isAuthError = (e) => e && (e.status === 401 || e.code === 'PGRST301' || /jwt/i.test(e.message || ''));
 
     // which view is showing
-    const VIEWS = ['chat', 'schedule', 'agents', 'tools', 'start', 'logs', 'help', 'settings'];
-    const NEEDS_AGENT = new Set(['chat', 'schedule', 'agents', 'tools', 'logs']); // Get started, Help and Settings work for anyone
-    const fromHash = location.hash.slice(1) === 'agent' ? 'agents' : location.hash.slice(1); // the old Agent page now lives under Agents
-    let view = VIEWS.includes(fromHash) ? fromHash : null; // chosen after we know if the login is linked
+    const VIEWS = ['chat', 'calendar', 'agents', 'tools', 'start', 'logs', 'help', 'settings'];
+    const TOOL_PAGES = new Set(['tool-email', 'tool-files', 'tool-notes', 'tool-github']); // each tool's own page, listed under Tools in the sidebar
+    const NEEDS_AGENT = new Set(['chat', 'calendar', 'agents', 'tools', 'logs']); // Get started, Help and Settings work for anyone
+    const rawHash = location.hash.slice(1);
+    const fromHash = rawHash === 'agent' ? 'agents' : rawHash === 'schedule' ? 'calendar' : rawHash; // old links: the Agent page lives under Agents, Schedule became Calendar
+    let view = VIEWS.includes(fromHash) || TOOL_PAGES.has(fromHash) ? fromHash : null; // chosen after we know if the login is linked
     let linked = null; // null = not known yet
     function show(v) {
       view = v;
+      const real = TOOL_PAGES.has(v) ? 'tools' : v; // a tool's page is the Tools page showing that tool
       try { history.replaceState(null, '', `#${v}`); } catch { /* ignore */ }
       for (const b of document.querySelectorAll('.side button[data-view]')) {
         if (b.dataset.view === v) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
       }
-      const blocked = NEEDS_AGENT.has(v) && linked === false;
+      const inTools = real === 'tools' || real === 'calendar'; // the Tools list in the sidebar is open while you are in any tool
+      $('toolsub').hidden = !inTools;
+      $('tools-toggle').setAttribute('aria-expanded', String(inTools));
+      const blocked = NEEDS_AGENT.has(real) && linked === false;
       $('unlinked').hidden = !blocked;
       for (const name of VIEWS) {
-        const open = name === v && (!NEEDS_AGENT.has(name) || linked === true);
+        const open = name === real && (!NEEDS_AGENT.has(name) || linked === true);
         $(`view-${name}`).hidden = !open;
       }
-      if (v === 'logs' && linked === true && !logs.started) logs.start();
-      if (v === 'tools' && linked === true) tools.load();
-      if (v === 'schedule' && linked === true) schedule.load();
-      if (v === 'agents' && linked === true) agentsView.load();
-      if (v === 'settings') settings.open();
+      if (real === 'tools') { if (TOOL_PAGES.has(v)) tools.open(v.slice(5)); else tools.close(); }
+      if (real === 'logs' && linked === true && !logs.started) logs.start();
+      if (real === 'tools' && linked === true) tools.load();
+      if (real === 'calendar' && linked === true) { calendar.load(); tools.load(); }
+      if (real === 'agents' && linked === true) agentsView.load();
+      if (real === 'settings') settings.open();
     }
     for (const b of document.querySelectorAll('.side button[data-view]')) {
       b.addEventListener('click', () => {
         if (b.classList.contains('newchat')) chat.reset(); // New chat clears the conversation on this page
-        if (b.dataset.view === 'tools') tools.close();   // the Tools button always opens the list
         show(b.dataset.view);
       });
     }
@@ -385,49 +391,103 @@
     };
     const setNote = (box, text) => { box.hidden = !text; box.textContent = text || ''; };
 
-    const schedule = {
-      data: null, busy: false, confirmPayload: null,
+    const calendar = {
+      data: null, busy: false, confirmPayload: null, month: null, sel: null,
+      gridStart() { // the Sunday on or before the 1st: where the month grid begins
+        const first = new Date(Date.UTC(this.month.y, this.month.m - 1, 1));
+        return new Date(first.getTime() - first.getUTCDay() * 864e5).toISOString().slice(0, 10);
+      },
+      monthKey() { return `${this.month.y}-${String(this.month.m).padStart(2, '0')}`; },
       async load(quiet) {
         if (this.busy) return;
+        if (!this.month) { const n = new Date(); this.month = { y: n.getFullYear(), m: n.getMonth() + 1 }; }
         this.busy = true;
         if (!quiet) $('sch-updated').textContent = 'Loading…';
-        const r = await webCall('GET', '/schedule?days=7');
+        const r = await webCall('GET', `/schedule?from=${this.gridStart()}&days=42`);
         this.busy = false;
         if (r.status !== 200) {
           $('sch-updated').textContent = '';
-          if (!this.data || !quiet) { this.data = null; $('sch-list').replaceChildren(); setNote($('sch-note'), webError(r, "Couldn't load your schedule. Try Refresh in a moment.")); $('sch-add').disabled = true; }
+          if (!this.data || !quiet) { this.data = null; $('cal-grid').replaceChildren(); $('sch-list').replaceChildren(); setNote($('sch-note'), webError(r, "Couldn't load your calendar. Try Refresh in a moment.")); $('sch-add').disabled = true; }
           return;
         }
-        this.data = r.body; this.render();
+        this.data = r.body;
+        if (!this.sel || this.sel < this.data.from || this.sel > plusDay(this.data.from, 41)) this.sel = this.monthKey() === this.data.today.slice(0, 7) ? this.data.today : `${this.monthKey()}-01`;
+        this.render();
         $('sch-updated').textContent = `Updated ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
       },
+      buckets() {
+        const d = this.data, tz = d.tz, by = new Map();
+        const at = (k) => { if (!by.has(k)) by.set(k, { allDay: [], timed: [], runs: [] }); return by.get(k); };
+        for (const e of d.events) {
+          const title = e.title || '(no title)';
+          if (e.allDay) {
+            const s0 = String(e.start).slice(0, 10), e0 = e.end ? String(e.end).slice(0, 10) : plusDay(s0, 1);
+            for (let k = s0, i = 0; k < e0 && i < 14; k = plusDay(k, 1), i += 1) at(k).allDay.push({ text: title });
+          } else {
+            const t = new Date(e.start);
+            if (!Number.isNaN(t.getTime())) at(tzDay(t, tz)).timed.push({ at: t.getTime(), when: clockStr(t, tz), text: title });
+          }
+        }
+        for (const r of d.runs) { const t = new Date(r.at); if (!Number.isNaN(t.getTime())) at(tzDay(t, tz)).runs.push({ at: t.getTime(), when: clockStr(t, tz), text: r.name }); }
+        for (const v of by.values()) { v.timed.sort((a, b) => a.at - b.at); v.runs.sort((a, b) => a.at - b.at); }
+        return by;
+      },
       render() {
-        const d = this.data, tz = d.tz, list = $('sch-list');
-        $('sch-sub').textContent = `Your calendar and when your agents will run. Times are in ${String(tz).replace(/_/g, ' ')}.`;
+        const d = this.data, grid = $('cal-grid'), by = this.buckets();
+        $('sch-sub').textContent = `Your Google Calendar and when your agents will run. Times are in ${String(d.tz).replace(/_/g, ' ')}.`;
+        $('cal-title').textContent = new Date(Date.UTC(this.month.y, this.month.m - 1, 1)).toLocaleDateString([], { timeZone: 'UTC', month: 'long', year: 'numeric' });
         const notes = { off: "Calendar isn't switched on for your account.", not_connected: 'Your calendar isn’t connected yet. In Telegram, send /connect google to your agent.', reconnect: 'Your Google connection expired. In Telegram, send /connect google to your agent.', unavailable: 'Google didn’t answer just now. Try Refresh in a moment.' };
         setNote($('sch-note'), notes[d.calendar] || '');
         $('sch-add').disabled = d.calendar !== 'ok';
-        if (!$('sch-date').value) $('sch-date').value = d.today;
-        const items = [];
-        for (const e of d.events) {
-          if (e.allDay) items.push({ key: String(e.start).slice(0, 10), order: 0, at: 0, when: 'All day', text: e.title || '(no title)', agent: false });
-          else { const t = new Date(e.start); if (!Number.isNaN(t.getTime())) items.push({ key: tzDay(t, tz), order: 1, at: t.getTime(), when: clockStr(t, tz), text: e.title || '(no title)', agent: false }); }
+        if (!$('sch-date').value) $('sch-date').value = this.sel;
+        grid.replaceChildren();
+        for (let i = 0; i < 7; i += 1) grid.append(el('div', 'dow', new Date(Date.UTC(2023, 0, 1 + i)).toLocaleDateString([], { timeZone: 'UTC', weekday: 'short' })));
+        const start = this.gridStart();
+        for (let i = 0; i < 42; i += 1) {
+          const key = plusDay(start, i), b = by.get(key) || { allDay: [], timed: [], runs: [] };
+          const cell = el('button', `calcell${key.slice(0, 7) !== this.monthKey() ? ' out' : ''}${key === d.today ? ' today' : ''}${key === this.sel ? ' sel' : ''}`);
+          cell.type = 'button'; cell.dataset.date = key;
+          const items = [...b.allDay.map((x) => ({ cls: 'ev allday', text: x.text })), ...b.timed.map((x) => ({ cls: 'ev', text: `${x.when.replace(':00', '').replace(' ', '').toLowerCase()} ${x.text}` })), ...b.runs.map((x) => ({ cls: 'ag', text: `${x.name}` }))];
+          cell.setAttribute('aria-label', `${dayTitle(key, d.today)}: ${b.allDay.length + b.timed.length} events${b.runs.length ? `, ${b.runs.length} agent runs` : ''}`);
+          cell.append(el('span', 'num', String(Number(key.slice(8)))));
+          for (const it of items.slice(0, 3)) cell.append(el('span', `chip ${it.cls}`, it.text));
+          if (items.length > 3) cell.append(el('span', 'more', `+${items.length - 3} more`));
+          if (items.length) { const dots = el('span', 'dots'); for (const it of items.slice(0, 3)) dots.append(el('i', it.cls.startsWith('ag') ? 'a' : '')); cell.append(dots); }
+          cell.addEventListener('click', () => this.select(key));
+          grid.append(cell);
         }
-        for (const r of d.runs) { const t = new Date(r.at); if (!Number.isNaN(t.getTime())) items.push({ key: tzDay(t, tz), order: 1, at: t.getTime(), when: clockStr(t, tz), text: `${r.name} runs`, agent: true }); }
-        items.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : a.order - b.order || a.at - b.at));
-        list.replaceChildren();
-        if (!items.length) list.append(el('p', 'muted', d.calendar === 'ok' ? 'Nothing on your calendar for the next 7 days.' : 'Nothing to show yet.'));
-        let cur = null, box = null;
-        for (const it of items) {
-          if (it.key !== cur) { cur = it.key; box = el('div', 'day'); box.append(el('h3', null, dayTitle(cur, d.today))); list.append(box); }
-          const row = el('div', it.agent ? 'item agentrun' : 'item');
-          row.append(el('span', 'when', it.when));
-          const what = el('span', 'what', it.text);
-          if (it.agent) what.append(el('span', 'tag', 'agent'));
-          row.append(what); box.append(row);
-        }
-        for (const b of d.beforeEvent) list.append(el('p', 'muted small', `${b.name} sends you a brief ${b.minutes} minutes before each event.`));
+        this.renderDay(by);
       },
+      renderDay(by) {
+        const d = this.data, key = this.sel, list = $('sch-list');
+        by = by || this.buckets();
+        $('cal-day-title').textContent = dayTitle(key, d.today);
+        for (const c of $('cal-grid').querySelectorAll('.calcell')) c.classList.toggle('sel', c.dataset.date === key);
+        const b = by.get(key) || { allDay: [], timed: [], runs: [] };
+        list.replaceChildren();
+        const row = (when, text, agent) => {
+          const r = el('div', agent ? 'item agentrun' : 'item');
+          r.append(el('span', 'when', when));
+          const w = el('span', 'what', text);
+          if (agent) w.append(el('span', 'tag', 'agent'));
+          r.append(w); list.append(r);
+        };
+        for (const x of b.allDay) row('All day', x.text, false);
+        for (const x of b.timed) row(x.when, x.text, false);
+        for (const x of b.runs) row(x.when, `${x.text} runs`, true);
+        if (!list.children.length) list.append(el('p', 'muted', d.calendar === 'ok' ? 'Nothing on this day.' : 'Nothing to show yet.'));
+        for (const x of d.beforeEvent) list.append(el('p', 'muted small', `${x.name} sends you a brief ${x.minutes} minutes before each event.`));
+      },
+      select(key) {
+        this.sel = key; $('sch-date').value = key; this.clearConfirm();
+        if (this.data) this.renderDay();
+      },
+      go(delta) { // months forward or back
+        const n = new Date(Date.UTC(this.month.y, this.month.m - 1 + delta, 1));
+        this.month = { y: n.getUTCFullYear(), m: n.getUTCMonth() + 1 };
+        this.sel = null; this.data = null; $('cal-grid').replaceChildren(); this.load();
+      },
+      today() { const n = this.data ? this.data.today : tzDay(new Date()); this.month = { y: Number(n.slice(0, 4)), m: Number(n.slice(5, 7)) }; this.sel = n; this.data = null; this.load(); },
       clearConfirm() { this.confirmPayload = null; $('sch-confirm').hidden = true; $('sch-confirm').replaceChildren(); },
       async add(force) {
         const msg = $('sch-msg');
@@ -460,10 +520,13 @@
         msg.textContent = webError(r, "That didn't work. Nothing was added.");
       },
     };
-    $('sch-refresh').addEventListener('click', () => schedule.load());
-    $('sch-form').addEventListener('submit', (e) => { e.preventDefault(); schedule.add(false); });
-    for (const id of ['sch-title', 'sch-date', 'sch-time', 'sch-mins']) $(id).addEventListener('input', () => schedule.clearConfirm());
-    setInterval(() => { if (view === 'schedule' && linked === true && !document.hidden) schedule.load(true); }, 60000);
+    $('sch-refresh').addEventListener('click', () => calendar.load());
+    $('cal-prev').addEventListener('click', () => calendar.go(-1));
+    $('cal-next').addEventListener('click', () => calendar.go(1));
+    $('cal-today').addEventListener('click', () => calendar.today());
+    $('sch-form').addEventListener('submit', (e) => { e.preventDefault(); calendar.add(false); });
+    for (const id of ['sch-title', 'sch-date', 'sch-time', 'sch-mins']) $(id).addEventListener('input', () => calendar.clearConfirm());
+    setInterval(() => { if (view === 'calendar' && linked === true && !document.hidden) calendar.load(true); }, 60000);
 
     const AGENT_EXAMPLES = ['every weekday at 8am', 'daily at 5:30pm', 'tomorrow at 9am', '30 minutes before every meeting', 'only when I ask'];
     const agentsView = {
@@ -717,16 +780,16 @@
     // ---- tools: one place for each app the agent can use (what it did, and how to connect or disconnect it)
     const TOOLS = [
       {
-        id: 'google', name: 'Google', blurb: 'Gmail drafts and your calendar.',
-        can: ['Saves email drafts in Gmail for you to look over. It never sends email and never reads your inbox.', 'Reads your Google Calendar to answer questions and, only after your yes, adds events. It never changes or deletes events you already have.'],
-        actions: ['list_events', 'draft_email'], connect: '/connect google', disconnect: '/disconnect google',
+        id: 'calendar', name: 'Calendar', view: 'calendar', blurb: 'Your Google Calendar: your agent reads it and adds events you approve.',
+        can: ['Reads your Google Calendar to answer questions and to write your agents’ messages.', 'Only after your yes, adds an event. It never changes or deletes events you already have.'],
+        actions: ['list_events', 'create_event'], connect: '/connect google', disconnect: '/disconnect google',
         hint: 'On Google’s screen, tick Select all before you continue. The boxes start unticked, and the agent needs both to work.',
       },
       {
-        id: 'github', name: 'GitHub', blurb: 'The code projects you choose.',
-        can: ['Looks at the projects you choose.', 'Only after your yes, puts a change on a new branch as a pull request. It never changes your main branch.'],
-        actions: ['list_repos', 'list_prs', 'build_status', 'code_task', 'cloud_ok', 'push_change'], names: true,
-        connect: '/connect github', disconnect: '/disconnect github',
+        id: 'email', name: 'Email', blurb: 'Gmail drafts for you to look over.',
+        can: ['Saves email drafts in Gmail for you to look over. It never sends email and never reads your inbox.'],
+        actions: ['draft_email'], connect: '/connect google', disconnect: '/disconnect google',
+        hint: 'Email and Calendar share one Google sign-in. On Google’s screen, tick Select all before you continue.',
       },
       {
         id: 'files', name: 'Files and spreadsheets', blurb: 'Files and spreadsheets the agent makes for you.',
@@ -737,6 +800,12 @@
         id: 'notes', name: 'Notes', blurb: 'Quick notes you ask it to keep.',
         can: ['Keeps short notes and reads them back to you.'],
         actions: ['add_note', 'list_notes'],
+      },
+      {
+        id: 'github', name: 'GitHub', blurb: 'The code projects you choose.',
+        can: ['Looks at the projects you choose.', 'Only after your yes, puts a change on a new branch as a pull request. It never changes your main branch.'],
+        actions: ['list_repos', 'list_prs', 'build_status', 'code_task', 'cloud_ok', 'push_change'], names: true,
+        connect: '/connect github', disconnect: '/disconnect github',
       },
     ];
     let toolOpen = null; // the tool whose page is showing, or null for the list
@@ -782,10 +851,11 @@
             card.appendChild(big);
           }
           card.appendChild(el('span', 'tool-open', 'OPEN →'));
-          card.addEventListener('click', () => this.open(t.id));
+          card.addEventListener('click', () => show(t.view || `tool-${t.id}`));
           box.appendChild(card);
         }
         if (toolOpen) this.renderDetail(toolOpen);
+        this.fill(TOOLS.find((x) => x.id === 'calendar'), { usage: $('cd-usage'), manage: $('cd-manage'), rows: $('cd-rows'), none: $('cd-none'), tbl: $('cd-tbl') });
       },
       open(id) { toolOpen = id; this.renderDetail(id); },
       close() { toolOpen = null; $('tool-detail').hidden = true; $('tools-list').hidden = false; },
@@ -796,11 +866,14 @@
         $('tool-detail').hidden = false;
         $('td-name').textContent = t.name;
         $('td-blurb').textContent = t.blurb;
+        this.fill(t, { usage: $('td-usage'), manage: $('td-manage'), rows: $('td-rows'), none: $('td-none'), tbl: $('td-tbl') });
+      },
+      fill(t, els) {
         const mine = this.mine(t);
         const done = mine.filter((r) => r.status === 'done');
         const failed = mine.filter((r) => r.status === 'failed').length;
         // what it can do and what it has done
-        const u = $('td-usage');
+        const u = els.usage;
         u.replaceChildren();
         u.appendChild(el('h2', null, 'What it can do'));
         const ul = el('ul');
@@ -834,7 +907,7 @@
           }
         }
         // connect / disconnect (these happen in Telegram for now)
-        const m = $('td-manage');
+        const m = els.manage;
         m.replaceChildren();
         if (t.connect) {
           m.appendChild(el('h2', null, 'Connect or disconnect'));
@@ -856,7 +929,7 @@
         }
         bindCopy(m);
         // recent activity for this tool
-        const body = $('td-rows');
+        const body = els.rows;
         body.replaceChildren();
         for (const r of mine.slice(0, 15)) {
           const tr = el('tr');
@@ -871,12 +944,12 @@
           tr.appendChild(res);
           body.appendChild(tr);
         }
-        $('td-none').hidden = mine.length > 0;
-        $('td-tbl').hidden = mine.length === 0;
+        els.none.hidden = mine.length > 0;
+        els.tbl.hidden = mine.length === 0;
       },
     };
     $('tools-refresh').addEventListener('click', () => tools.load());
-    $('tool-back').addEventListener('click', () => tools.close());
+    $('tool-back').addEventListener('click', () => show('tools'));
 
     // ---- chat: messages drop to the bottom like ChatGPT, with typing dots while the agent answers
     const chat = {

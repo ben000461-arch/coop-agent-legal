@@ -19,8 +19,14 @@
     <div class="navmain">
       <button type="button" data-view="start">Get started</button>
       <button type="button" data-view="logs">Logs</button>
-      <button type="button" data-view="tools">Tools</button>
-      <button type="button" class="sub" data-view="schedule">Schedule</button>
+      <button type="button" id="tools-toggle" data-view="tools" aria-expanded="false" aria-controls="toolsub">Tools<svg class="chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
+      <div id="toolsub" class="toolsub" hidden>
+        <button type="button" class="sub" data-view="calendar">Calendar</button>
+        <button type="button" class="sub" data-view="tool-email">Email</button>
+        <button type="button" class="sub" data-view="tool-files">Files &amp; sheets</button>
+        <button type="button" class="sub" data-view="tool-notes">Notes</button>
+        <button type="button" class="sub" data-view="tool-github">GitHub</button>
+      </div>
       <button type="button" data-view="agents">Agents</button>
     </div>
     <div class="navfoot">
@@ -110,24 +116,41 @@
       <p class="muted small"><button class="linklike" type="button" id="steps-reset">Start these steps over</button></p>
     </section>
 
-    <section id="view-schedule" hidden>
-      <h1>Schedule</h1>
-      <p id="sch-sub" class="muted">Your calendar and when your agents will run.</p>
-      <div class="bar"><span class="spacer"></span><span id="sch-updated" class="muted small"></span><button id="sch-refresh" class="btn ghost small" type="button">Refresh</button></div>
+    <section id="view-calendar" hidden>
+      <div class="pagehead"><h1>Calendar</h1><div class="calnav"><button id="cal-prev" class="btn ghost small" type="button" aria-label="Previous month">‹</button><button id="cal-today" class="btn ghost small" type="button">Today</button><button id="cal-next" class="btn ghost small" type="button" aria-label="Next month">›</button></div></div>
+      <p id="sch-sub" class="muted">Your Google Calendar and when your agents will run.</p>
+      <div class="bar"><h2 id="cal-title" class="caltitle"></h2><span class="spacer"></span><span id="sch-updated" class="muted small"></span><button id="sch-refresh" class="btn ghost small" type="button">Refresh</button></div>
       <div id="sch-note" class="panel" hidden></div>
-      <div id="sch-list"></div>
-      <form id="sch-form" class="panel" autocomplete="off">
-        <h2>Add an event</h2>
-        <div class="formgrid">
-          <label>What<input id="sch-title" type="text" maxlength="80" placeholder="Lunch with Dana"></label>
-          <label>Day<input id="sch-date" type="date"></label>
-          <label>Start<input id="sch-time" type="time" value="09:00"></label>
-          <label>Length<select id="sch-mins"><option value="15">15 min</option><option value="30">30 min</option><option value="45">45 min</option><option value="60" selected>1 hour</option><option value="90">1.5 hours</option><option value="120">2 hours</option></select></label>
-        </div>
-        <div id="sch-confirm" class="notice" hidden></div>
-        <p id="sch-msg" class="muted small" role="status"></p>
-        <button id="sch-add" class="btn small" type="submit">Add to my calendar</button>
-      </form>
+      <div id="cal-grid" class="calgrid" role="grid" aria-label="Month"></div>
+      <div class="panel calday">
+        <h2 id="cal-day-title"></h2>
+        <div id="sch-list"></div>
+        <form id="sch-form" autocomplete="off">
+          <h2>Add an event</h2>
+          <div class="formgrid">
+            <label>What<input id="sch-title" type="text" maxlength="80" placeholder="Lunch with Dana"></label>
+            <label>Day<input id="sch-date" type="date"></label>
+            <label>Start<input id="sch-time" type="time" value="09:00"></label>
+            <label>Length<select id="sch-mins"><option value="15">15 min</option><option value="30">30 min</option><option value="45">45 min</option><option value="60" selected>1 hour</option><option value="90">1.5 hours</option><option value="120">2 hours</option></select></label>
+          </div>
+          <div id="sch-confirm" class="notice" hidden></div>
+          <p id="sch-msg" class="muted small" role="status"></p>
+          <button id="sch-add" class="btn small" type="submit">Add to my calendar</button>
+        </form>
+      </div>
+      <h2 class="calsec">Google Calendar</h2>
+      <div class="td-grid">
+        <div class="panel" id="cd-usage"></div>
+        <div class="panel" id="cd-manage"></div>
+      </div>
+      <div class="td-recent">
+        <h2>Recent activity</h2>
+        <p id="cd-none" class="empty" hidden>Nothing yet. Ask your agent to use it and it will show up here.</p>
+        <table id="cd-tbl" hidden>
+          <thead><tr><th>When</th><th>What happened</th><th>Result</th></tr></thead>
+          <tbody id="cd-rows"></tbody>
+        </table>
+      </div>
     </section>
 
     <section id="view-agents" hidden>
