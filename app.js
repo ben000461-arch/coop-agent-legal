@@ -354,6 +354,14 @@
       });
     }
 
+    // phone menu: the sidebar folds behind a menu button; picking a page closes it (Tools stays open so you can pick a tool)
+    const menuBtn = $('menu-btn');
+    const setMenu = (open) => { document.body.classList.toggle('menu-open', open); menuBtn.setAttribute('aria-expanded', String(open)); };
+    menuBtn.addEventListener('click', () => setMenu(!document.body.classList.contains('menu-open')));
+    for (const b of document.querySelectorAll('.side button[data-view]')) b.addEventListener('click', () => { if (b.id !== 'tools-toggle') setMenu(false); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setMenu(false); });
+    window.matchMedia('(min-width:761px)').addEventListener('change', (e) => { if (e.matches) setMenu(false); });
+
     // ---- schedule + agents: these talk to the bot's /web/schedule and /web/agents (same login as chat)
     const webBase = /\/chat$/.test(cfg.chatApi || '') ? cfg.chatApi.replace(/\/chat$/, '') : '';
     async function webCall(method, path, body) {

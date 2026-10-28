@@ -10,10 +10,11 @@
 <div id="fatal" class="fatal" hidden><div class="box" role="alert"></div></div>
 <div id="app" class="shell" hidden>
   <header class="top">
+    <button id="menu-btn" class="menubtn" type="button" aria-label="Menu" aria-expanded="false" aria-controls="sidenav"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
     <div class="brand"><span class="coop-logo">co<span class="bar">|</span>op</span><span class="brand-sub">Agent</span></div>
     <div class="who"><span id="who"></span><button id="out" class="btn ghost small" type="button">Log out</button></div>
   </header>
-  <nav class="side" aria-label="Sections">
+  <nav class="side" id="sidenav" aria-label="Sections">
     <button type="button" class="newchat" data-view="chat">＋ New chat</button>
     <div id="chat-list" class="chatlist" role="list" aria-label="Your chats"></div>
     <div class="navmain">

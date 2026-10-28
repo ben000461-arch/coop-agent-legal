@@ -372,11 +372,21 @@ textarea{resize:vertical;font-family:inherit}
 .about[open] summary{margin-bottom:10px}
 @media (max-width:760px){
   .side{position:static;height:auto;overflow:visible}
-  .navmain,.navfoot{flex-direction:row;flex-wrap:wrap;gap:6px;margin:0;padding:0;border:0}
-  .toolsub{flex:0 0 100%;flex-direction:row;flex-wrap:wrap;gap:6px;margin:0;border:0}
-  .toolsub[hidden]{display:none}
-  .side .sub{padding-left:12px}
-  .legal{margin:0;align-self:center}
+}
+.menubtn{display:none;align-items:center;justify-content:center;width:40px;height:40px;margin-right:6px;border:1px solid var(--line);border-radius:10px;background:none;color:var(--fg);cursor:pointer}
+@media (max-width:760px){
+  .top{position:sticky;top:0;z-index:40;background:var(--bg);gap:8px;padding:0 12px}
+  .menubtn{display:inline-flex}
+  .brand{flex:1;min-width:0}
+  .who span{display:none}
+  .who .btn{white-space:nowrap}
+  .shell{grid-template-rows:auto 1fr}
+  .side{display:none;position:fixed;top:60px;left:0;right:0;bottom:0;height:auto;z-index:30;background:var(--bg);border:0;padding:12px 16px 20px;flex-direction:column;overflow-y:auto}
+  body.menu-open .side{display:flex}
+  body.menu-open{overflow:hidden}
+  .side button{width:100%;padding:13px 12px;font-size:1rem}
+  .chat{height:calc(100vh - 130px)}
+  .side .sub{padding:11px 12px 11px 16px}
 }
 
 /* month calendar */
